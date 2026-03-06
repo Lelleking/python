@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>Aggregation Analysis</title>
+</head>
+<body>
+    {% if train_metrics %}
+    <div class="metrics-box">
+        <div><strong>Current accuracy:</strong></div>
+        <div>Aggregation or not: {{ train_metrics.aggregation_pct }}%</div>
+        <div>Half-time: +-{{ train_metrics.halftime_err_pct }}% or +-{{ train_metrics.halftime_err_hours }} h</div>
+    </div>
+    {% endif %}
+
+    <h1>Aggregation analysis</h1>
+    <p>Files merged: {{ n_files }}</p>
+    <p>Selected chromatic: {{ chromatic }}</p>
+    <p>Time unit: {{ time_unit_suffix }}</p>
+    <form method="get" action="{{ url_for('aggregation_analysis_view', analysis_id=analysis_id) }}" style="margin-bottom:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <label for="mode">Analyze</label>
+        <select id="mode" name="mode">
+            <option value="groups" {% if current_mode == 'groups' %}selected{% endif %}>Groups</option>
+            <option value="wells" {% if current_mode == 'wells' %}selected{% endif %}>Single wells</option>
+        </select>
+
+        <label for="item-select">{% if current_mode == 'groups' %}Group{% else %}Well{% endif %}</label>
+        <select id="item-select" name="item">
+            {% if current_mode == 'groups' %}
+                {% for name in group_options %}
+                <option value="{{ name }}" {% if name == current_item %}selected{% endif %}>{{ name }}</option>
+                {% endfor %}
+            {% else %}
+                {% for w in well_options %}
+                <option value="{{ w }}" {% if w == current_item %}selected{% endif %}>{{ w }}</option>
+                {% endfor %}
+            {% endif %}
+        </select>
+        <label style="display:inline-flex; align-items:center; gap:4px; margin-left:8px;">
+            <input type="checkbox" name="show_halftime" value="1" {% if show_halftime %}checked{% endif %}>
+            show halftime dot
+        </label>
+        <label style="display:inline-flex; align-items:center; gap:4px;">
+            <input type="checkbox" name="show_baseline" value="1" {% if show_baseline %}checked{% endif %}>
+            show baseline dot
+        </label>
+        <label style="display:inline-flex; align-items:center; gap:4px;">
+            <input type="checkbox" name="show_plateau" value="1" {% if show_plateau %}checked{% endif %}>
+            show plateau dot
+        </label>
+        <button type="submit">Show</button>
+    </form>
+
+    <p>{{ subtitle }}</p>
+    <p>Wells: {{ group_wells | join(", ") }}</p>
+
+    <p><a href="{{ url_for('plot_download', plot_id=image_id) }}">Download plot</a></p>
+
+    <div class="plot-nav-layout">
+        {% if has_prev %}
+        <a class="nav-arrow nav-left" href="{{ url_for('aggregation_analysis_view', analysis_id=analysis_id, mode=current_mode, item=prev_item, show_halftime=(1 if show_halftime else 0), show_baseline=(1 if show_baseline else 0), show_plateau=(1 if show_plateau else 0)) }}" aria-label="Previous">&#8592;</a>
+        {% else %}
+        <span class="nav-arrow nav-left nav-disabled" aria-hidden="true">&#8592;</span>
+        {% endif %}
+
+        <img src="{{ image_url }}" alt="Group aggregation plot" style="max-width:100%; height:auto; border:1px solid #ccc; border-radius:10px; background:#fff;">
+
+        {% if has_next %}
+        <a class="nav-arrow nav-right" href="{{ url_for('aggregation_analysis_view', analysis_id=analysis_id, mode=current_mode, item=next_item, show_halftime=(1 if show_halftime else 0), show_baseline=(1 if show_baseline else 0), show_plateau=(1 if show_plateau else 0)) }}" aria-label="Next">&#8594;</a>
+        {% else %}
+        <span class="nav-arrow nav-right nav-disabled" aria-hidden="true">&#8594;</span>
+        {% endif %}
+    </div>
+
+    <script>
+        const modeEl = document.getElementById("mode");
+        if (modeEl) {
+            modeEl.addEventListener("change", function () {
+                modeEl.form.submit();
+            });
+        }
+        const itemEl = document.getElementById("item-select");
+        if (itemEl) {
+            itemEl.addEventListener("change", function () {
+                itemEl.form.submit();
+            });
+        }
+    </script>
+
+    <p><a href="/">Back</a></p>
+</body>
+</html>

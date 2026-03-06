@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>t1/2 Plot Result</title>
+</head>
+<body>
+    {% if train_metrics %}
+    <div class="metrics-box">
+        <div><strong>Current accuracy:</strong></div>
+        <div>Aggregation or not: {{ train_metrics.aggregation_pct }}%</div>
+        <div>Half-time: +-{{ train_metrics.halftime_err_pct }}% or +-{{ train_metrics.halftime_err_hours }} h</div>
+    </div>
+    {% endif %}
+
+    <h1>t1/2 Plot Result</h1>
+
+    <p>Files merged: {{ n_files }}</p>
+    <p>Selected chromatic: {{ chromatic }}</p>
+    <p>Plot type: {% if scale == 'log' %}t1/2 versus log(conc){% else %}t1/2 vs conc{% endif %}</p>
+
+    <img src="{{ image_url }}" alt="t1/2 plot" style="max-width:100%; height:auto; border:1px solid #ccc;">
+    <p><a href="{{ url_for('plot_download', plot_id=image_id) }}">Download plot</a></p>
+
+    <p><a href="/">Back</a></p>
+</body>
+</html>

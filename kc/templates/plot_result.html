@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>Plot Result</title>
+</head>
+<body>
+    {% if train_metrics %}
+    <div class="metrics-box">
+        <div><strong>Current accuracy:</strong></div>
+        <div>Aggregation or not: {{ train_metrics.aggregation_pct }}%</div>
+        <div>Half-time: +-{{ train_metrics.halftime_err_pct }}% or +-{{ train_metrics.halftime_err_hours }} h</div>
+    </div>
+    {% endif %}
+
+    <h1>Plot Result</h1>
+
+    <p>Files merged: {{ n_files }}</p>
+    <p>Selected chromatic: {{ chromatic }}</p>
+    <p>Time unit: {{ time_unit_suffix }}</p>
+    <p>Wells plotted: {{ n_wells }}</p>
+    <p>Plot type: {% if plot_type == 'normalized' %}Normalized aggregation curve{% else %}Aggregation curve{% endif %}</p>
+    {% if info_message %}
+    <p>{{ info_message }}</p>
+    {% endif %}
+
+    <form action="/plot/render" method="post">
+        <input type="hidden" name="dataset_id" value="{{ dataset_id }}">
+        <input type="hidden" id="groups-json" name="groups_json" value='{{ groups | tojson }}'>
+
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+            <button type="button" id="select-all-btn">Select all</button>
+            <button type="button" id="clear-all-btn">Clear all</button>
+            <button type="button" id="invert-selection-btn">Invert selection</button>
+            <label for="x-from">from x ({{ time_unit_suffix }})</label>
+            <input id="x-from" name="x_from" type="text" placeholder="{% if x_from is not none %}{{ x_from }}{% endif %}">
+
+            <label for="x-to">to x ({{ time_unit_suffix }})</label>
+            <input id="x-to" name="x_to" type="text" placeholder="{% if x_to is not none %}{{ x_to }}{% endif %}">
+
+            <button type="submit" name="action" value="update">Update plot</button>
+        </div>
+
+        <h3>Group together</h3>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+            <input id="group-name" type="text" placeholder="group name">
+            <button type="button" id="add-group-btn">Add/Update group from checked wells</button>
+            <button type="button" id="clear-groups-btn">Clear groups</button>
+        </div>
+
+        <div id="groups-preview" style="margin-bottom:10px;"></div>
+
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+            <span>Select the</span>
+            <select id="rep-count" name="rep_count"></select>
+            <span>most representative curves for groups</span>
+            <details style="position:relative;">
+                <summary style="cursor:pointer;">Select groups</summary>
+                <div id="rep-groups-list" style="position:absolute; z-index:20; top:120%; left:0; min-width:220px; max-height:220px; overflow-y:auto; background:#fff; border:1px solid #d1d5db; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.14); padding:8px;"></div>
+            </details>
+            <button type="submit" name="action" value="select_representative">Select representative</button>
+        </div>
+
+        <p><strong>*</strong> = not valid aggregation</p>
+
+        <div id="well-list" style="max-width:900px;">
+            {% for well in all_wells %}
+            <label style="display:inline-block; min-width:80px; margin:4px 8px 4px 0;">
+                <input type="checkbox" name="wells" value="{{ well }}" {% if well in selected_wells %}checked{% endif %}>
+                {{ well }}{% if invalid_wells and (well in invalid_wells) %}*{% endif %}
+            </label>
+            {% endfor %}
+        </div>
+    </form>
+
+    <img src="{{ image_url }}" alt="Aggregation plot" style="max-width:100%; height:auto; border:1px solid #ccc; margin-top:12px;">
+    <p><a href="{{ url_for('plot_download', plot_id=image_id) }}">Download plot</a></p>
+
+    <p><a href="/">Back</a></p>
+
+    <script>
+        const groupsInput = document.getElementById("groups-json");
+        const groupNameInput = document.getElementById("group-name");
+        const addGroupBtn = document.getElementById("add-group-btn");
+        const clearGroupsBtn = document.getElementById("clear-groups-btn");
+        const groupsPreview = document.getElementById("groups-preview");
+        const selectAllBtn = document.getElementById("select-all-btn");
+        const clearAllBtn = document.getElementById("clear-all-btn");
+        const invertBtn = document.getElementById("invert-selection-btn");
+        const repCountSelect = document.getElementById("rep-count");
+        const repGroupsList = document.getElementById("rep-groups-list");
+        const groupPalette = [
+            "#3B82F6",
+            "#F59E0B",
+            "#10B981",
+            "#EF4444",
+            "#8B5CF6",
+            "#06B6D4",
+            "#84CC16",
+            "#F97316",
+            "#EC4899",
+            "#6366F1"
+        ];
+
+        let groups = {};
+        try {
+            groups = JSON.parse(groupsInput.value || "{}");
+        } catch {
+            groups = {};
+        }
+
+        function selectedWellValues() {
+            return Array.from(document.querySelectorAll('input[name="wells"]:checked')).map(el => el.value);
+        }
+
+        function allWellBoxes() {
+            return document.querySelectorAll('input[name="wells"]');
+        }
+
+        function syncGroupsToInput() {
+            groupsInput.value = JSON.stringify(groups);
+        }
+
+        function hexToRgba(hex, alpha) {
+            const clean = hex.replace("#", "");
+            const num = parseInt(clean, 16);
+            const r = (num >> 16) & 255;
+            const g = (num >> 8) & 255;
+            const b = num & 255;
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        function applyGroupWellColors(groupColorMap) {
+            const wellToGroup = {};
+            Object.keys(groups).forEach(groupName => {
+                groups[groupName].forEach(well => {
+                    wellToGroup[well] = groupName;
+                });
+            });
+
+            document.querySelectorAll('#well-list input[name="wells"]').forEach(input => {
+                const label = input.closest("label");
+                if (!label) {
+                    return;
+                }
+
+                const well = input.value;
+                const groupName = wellToGroup[well];
+                if (!groupName) {
+                    label.style.backgroundColor = "";
+                    label.style.borderColor = "";
+                    label.style.boxShadow = "";
+                    label.title = "";
+                    return;
+                }
+
+                const base = groupColorMap[groupName];
+                label.style.backgroundColor = hexToRgba(base, 0.18);
+                label.style.borderColor = hexToRgba(base, 0.45);
+                label.style.boxShadow = `inset 0 0 0 1px ${hexToRgba(base, 0.35)}`;
+                label.title = `Group: ${groupName}`;
+            });
+        }
+
+        function renderGroups() {
+            const names = Object.keys(groups).sort();
+            const groupColorMap = {};
+            names.forEach((name, i) => {
+                groupColorMap[name] = groupPalette[i % groupPalette.length];
+            });
+
+            if (!names.length) {
+                groupsPreview.textContent = "No groups defined.";
+                applyGroupWellColors(groupColorMap);
+                syncGroupsToInput();
+                renderRepresentativeControls();
+                return;
+            }
+
+            const lines = names.map(name => {
+                const color = groupColorMap[name];
+                const swatch = `<span style="display:inline-block;width:10px;height:10px;border-radius:999px;margin-right:6px;vertical-align:middle;background:${color};"></span>`;
+                const trash = `<button type="button" class="group-trash-btn" data-group-name="${name}" title="Delete group">&#128465;</button>`;
+                return `<div class="group-preview-row">${swatch}${name}: ${groups[name].join(', ')} ${trash}</div>`;
+            });
+            groupsPreview.innerHTML = lines.join("");
+            applyGroupWellColors(groupColorMap);
+            syncGroupsToInput();
+            renderRepresentativeControls();
+        }
+
+        function renderRepresentativeControls() {
+            const names = Object.keys(groups).sort();
+            if (!names.length) {
+                repCountSelect.innerHTML = '<option value="1">1</option>';
+                repCountSelect.disabled = true;
+                repGroupsList.innerHTML = '<div style="font-size:0.9rem; color:#64748b;">No groups defined.</div>';
+                return;
+            }
+
+            let maxGroupSize = 0;
+            names.forEach(name => {
+                const n = (groups[name] || []).length;
+                if (n > maxGroupSize) {
+                    maxGroupSize = n;
+                }
+            });
+            const maxRep = Math.max(1, maxGroupSize - 1);
+            const current = parseInt(repCountSelect.value || "1", 10);
+            let options = "";
+            for (let i = 1; i <= maxRep; i++) {
+                const selected = (i === current) ? "selected" : "";
+                options += `<option value="${i}" ${selected}>${i}</option>`;
+            }
+            repCountSelect.innerHTML = options;
+            repCountSelect.disabled = false;
+
+            const currentChecked = new Set(
+                Array.from(repGroupsList.querySelectorAll('input[name=\"rep_groups\"]:checked')).map(el => el.value)
+            );
+            const lines = names.map(name => {
+                const checked = (currentChecked.size === 0 || currentChecked.has(name)) ? "checked" : "";
+                return `
+                    <label style="display:block; margin-bottom:4px;">
+                        <input type="checkbox" name="rep_groups" value="${name}" ${checked}>
+                        ${name}
+                    </label>
+                `;
+            });
+            repGroupsList.innerHTML = lines.join("");
+        }
+
+        addGroupBtn.addEventListener("click", function () {
+            const name = (groupNameInput.value || "").trim();
+            const selected = selectedWellValues();
+
+            if (!name || selected.length === 0) {
+                return;
+            }
+
+            // Remove selected wells from existing groups first.
+            Object.keys(groups).forEach(groupName => {
+                groups[groupName] = groups[groupName].filter(w => !selected.includes(w));
+                if (groups[groupName].length === 0) {
+                    delete groups[groupName];
+                }
+            });
+
+            if (!groups[name]) {
+                groups[name] = [];
+            }
+            groups[name] = Array.from(new Set(groups[name].concat(selected))).sort();
+
+            renderGroups();
+        });
+
+        clearGroupsBtn.addEventListener("click", function () {
+            groups = {};
+            renderGroups();
+        });
+
+        groupsPreview.addEventListener("click", function (e) {
+            const btn = e.target.closest(".group-trash-btn");
+            if (!btn) {
+                return;
+            }
+            const name = btn.dataset.groupName;
+            if (!name) {
+                return;
+            }
+            delete groups[name];
+            renderGroups();
+        });
+
+        selectAllBtn.addEventListener("click", function () {
+            allWellBoxes().forEach(box => box.checked = true);
+        });
+
+        clearAllBtn.addEventListener("click", function () {
+            allWellBoxes().forEach(box => box.checked = false);
+        });
+
+        invertBtn.addEventListener("click", function () {
+            allWellBoxes().forEach(box => box.checked = !box.checked);
+        });
+
+        renderGroups();
+    </script>
+</body>
+</html>

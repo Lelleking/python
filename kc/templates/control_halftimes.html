@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>Control Half Times</title>
+</head>
+<body>
+    {% if train_metrics %}
+    <div class="metrics-box">
+        <div><strong>Current accuracy:</strong></div>
+        <div>Aggregation or not: {{ train_metrics.aggregation_pct }}%</div>
+        <div>Half-time: +-{{ train_metrics.halftime_err_pct }}% or +-{{ train_metrics.halftime_err_hours }} h</div>
+    </div>
+    {% endif %}
+
+    <h1>Control half times</h1>
+    <p>Files merged: {{ n_files }}</p>
+    <p>Selected chromatic: {{ chromatic }}</p>
+    <p>Time unit: {{ time_unit_suffix }}</p>
+    <p>
+        Well {{ idx + 1 }} / {{ total_wells }}:
+        <details style="display:inline-block; position:relative;">
+            <summary style="display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-weight:700; list-style:none; border:1px solid #cbd5e1; border-radius:8px; padding:4px 10px; background:#f8fafc;">
+                <span>{{ well }}</span>
+                <span style="font-size:12px; color:#64748b;">▼</span>
+            </summary>
+            <div style="position:absolute; z-index:15; top:120%; left:0; min-width:120px; max-height:240px; overflow-y:auto; background:#fff; border:1px solid #d1d5db; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.14); padding:6px;">
+                {% for well_idx, well_name in well_options %}
+                <div>
+                    <a href="{{ url_for('control_halftimes_view', control_id=control_id, idx=well_idx) }}" style="display:block; padding:6px 8px; border-radius:6px; text-decoration:none; color:#111827; {% if well_idx == idx %}background:#e5e7eb; font-weight:700;{% endif %}">
+                        {{ well_name }}
+                    </a>
+                </div>
+                {% endfor %}
+            </div>
+        </details>
+    </p>
+
+    <p><a href="{{ url_for('plot_download', plot_id=image_id) }}">Download plot</a></p>
+
+    <div class="plot-nav-layout">
+        {% if has_prev %}
+        <a class="nav-arrow nav-left" href="{{ url_for('control_halftimes_view', control_id=control_id, idx=prev_idx) }}" aria-label="Previous well">&#8592;</a>
+        {% else %}
+        <span class="nav-arrow nav-left nav-disabled" aria-hidden="true">&#8592;</span>
+        {% endif %}
+
+        <div id="plot-image-wrap" style="position:relative; display:inline-block; width:100%; max-width:960px; border:1px solid #ccc; border-radius:10px; background:#fff; overflow:hidden;">
+            <img id="well-plot-image" src="{{ image_url }}" alt="Well plot" style="width:100%; display:block; background:#fff;">
+            <div id="submitted-dot" style="position:absolute; width:14px; height:14px; border-radius:50%; background:#10B981; opacity:0.55; border:2px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,0.18); transform:translate(-50%, -50%); display:none; pointer-events:none;"></div>
+        </div>
+
+        {% if has_next %}
+        <a class="nav-arrow nav-right" href="{{ url_for('control_halftimes_view', control_id=control_id, idx=next_idx) }}" aria-label="Next well">&#8594;</a>
+        {% else %}
+        <span class="nav-arrow nav-right nav-disabled" aria-hidden="true">&#8594;</span>
+        {% endif %}
+    </div>
+    <p><strong>Calculated halftime:</strong> {{ t_half }}</p>
+    <p><strong>Submitted halftime:</strong> <span id="submitted-halftime-text">{{ submitted_t_half }}</span></p>
+    <p><strong>Submitted y-value:</strong> <span id="submitted-y-text">{% if submitted_y_value is not none %}{{ "%.1f"|format(submitted_y_value) }} a.u.{% else %}N/A{% endif %}</span></p>
+
+    <form action="{{ url_for('control_halftimes_update', control_id=control_id) }}" method="post">
+        <input type="hidden" name="idx" value="{{ idx }}">
+        <div class="controller-inline-row">
+            <label for="custom-halftime">more accurate halftime?(in {{ time_unit_suffix }})</label>
+            <input id="custom-halftime" name="custom_halftime" type="text" placeholder="e.g. 24.5">
+            <label for="custom-y-value">or insert y-value:</label>
+            <input id="custom-y-value" name="custom_y_value" type="text" placeholder="e.g. 15000">
+            <button type="submit" name="action" value="display">Display on curve</button>
+        </div>
+        <p style="margin:6px 2px 10px 2px; font-size:0.86rem; color:#64748b;">
+            Tip: You can also click directly on the curve and drag the green dot to set a more accurate halftime.
+        </p>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <button id="train-submit-btn" class="train-btn" type="submit" name="action" value="train">
+                {% if has_calculated_t_half %}
+                Train model with new halftime ({{ submitted_t_half }})
+                {% else %}
+                Train model with new halftime + mark aggregate ({{ submitted_t_half }})
+                {% endif %}
+            </button>
+            <button class="good-pred-btn" type="submit" name="action" value="mark_good_prediction">
+                Good prediction (also trains the model)
+            </button>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:10px;">
+            {% if has_calculated_t_half %}
+            <button class="agg-not-btn" type="submit" name="action" value="mark_not_aggregate">
+                This well does not aggregate (trains the model)
+            </button>
+            {% else %}
+            <span style="font-size:0.88rem; color:#64748b;">
+                Submitting a halftime also trains this well as aggregate.
+            </span>
+            {% endif %}
+        </div>
+    </form>
+
+    {% if status_message %}
+    <p>{{ status_message }}</p>
+    {% endif %}
+
+    <script>
+        const xData = {{ time_h_data | tojson }};
+        const yData = {{ signal_data | tojson }};
+        const plotMeta = {{ plot_meta | tojson }};
+        const controlId = {{ control_id | tojson }};
+        const currentIdx = {{ idx | tojson }};
+        const unitSuffix = {{ time_unit_suffix | tojson }};
+        const hasCalculatedHalftime = {{ has_calculated_t_half | tojson }};
+        let submittedHalftime = {{ submitted_t_half_value | tojson }};
+        const customHalftimeInput = document.getElementById("custom-halftime");
+        const submittedTextEl = document.getElementById("submitted-halftime-text");
+        const submittedYTextEl = document.getElementById("submitted-y-text");
+        const trainSubmitBtn = document.getElementById("train-submit-btn");
+        const imgEl = document.getElementById("well-plot-image");
+        const dotEl = document.getElementById("submitted-dot");
+        let dragging = false;
+        let hasSubmittedDot = false;
+        const Y_VISUAL_OFFSET_PX = 1.2;
+
+        function bounds() {
+            const width = imgEl.clientWidth;
+            const height = imgEl.clientHeight;
+            return {
+                width: width,
+                height: height,
+                x0: width * plotMeta.ax_left,
+                x1: width * plotMeta.ax_right,
+                y0: height * (1 - plotMeta.ax_top),
+                y1: height * (1 - plotMeta.ax_bottom)
+            };
+        }
+
+        function imageOffsetInWrap() {
+            const wrapRect = imgEl.parentElement.getBoundingClientRect();
+            const imgRect = imgEl.getBoundingClientRect();
+            return {
+                dx: imgRect.left - wrapRect.left,
+                dy: imgRect.top - wrapRect.top
+            };
+        }
+
+        function xToPx(xVal) {
+            const b = bounds();
+            if (xData.length === 0) return b.x0;
+            const minX = plotMeta.x_min;
+            const maxX = plotMeta.x_max;
+            if (maxX <= minX) return b.x0;
+            const t = (xVal - minX) / (maxX - minX);
+            return b.x0 + Math.max(0, Math.min(1, t)) * (b.x1 - b.x0);
+        }
+
+        function yToPx(yVal) {
+            const b = bounds();
+            if (yData.length === 0) return b.y1;
+            const minY = plotMeta.y_min;
+            const maxY = plotMeta.y_max;
+            if (maxY <= minY) return b.y1;
+            const t = (yVal - minY) / (maxY - minY);
+            return b.y1 - Math.max(0, Math.min(1, t)) * (b.y1 - b.y0);
+        }
+
+        function pxToX(px) {
+            const b = bounds();
+            const minX = plotMeta.x_min;
+            const maxX = plotMeta.x_max;
+            if (maxX <= minX || b.x1 <= b.x0) return minX;
+            const clamped = Math.max(b.x0, Math.min(b.x1, px));
+            const t = (clamped - b.x0) / (b.x1 - b.x0);
+            return minX + t * (maxX - minX);
+        }
+
+        function interpYAtX(xVal) {
+            if (!xData.length || !yData.length || xData.length !== yData.length) {
+                return null;
+            }
+            if (xVal <= xData[0]) {
+                return yData[0];
+            }
+            const last = xData.length - 1;
+            if (xVal >= xData[last]) {
+                return yData[last];
+            }
+            for (let i = 0; i < last; i++) {
+                const x1 = xData[i];
+                const x2 = xData[i + 1];
+                if (xVal >= x1 && xVal <= x2) {
+                    if (x2 === x1) {
+                        return yData[i];
+                    }
+                    const frac = (xVal - x1) / (x2 - x1);
+                    return yData[i] + frac * (yData[i + 1] - yData[i]);
+                }
+            }
+            return yData[last];
+        }
+
+        function renderDotAt(xVal, yVal) {
+            const off = imageOffsetInWrap();
+            dotEl.style.left = `${off.dx + xToPx(xVal)}px`;
+            dotEl.style.top = `${off.dy + yToPx(yVal) + Y_VISUAL_OFFSET_PX}px`;
+            dotEl.style.display = "block";
+        }
+
+        function updateTrainButton() {
+            if (!trainSubmitBtn) return;
+            const v = (submittedHalftime === null) ? "N/A" : `${submittedHalftime.toFixed(2)} ${unitSuffix}`;
+            if (hasCalculatedHalftime) {
+                trainSubmitBtn.textContent = `Train model with new halftime (${v})`;
+            } else {
+                trainSubmitBtn.textContent = `Train model with new halftime + mark aggregate (${v})`;
+            }
+        }
+
+        function refreshServerPlotWithSubmitted() {
+            if (submittedHalftime === null) {
+                return;
+            }
+            const submittedParam = encodeURIComponent(submittedHalftime.toFixed(6));
+            imgEl.src = `/control_halftimes/${controlId}/preview?idx=${currentIdx}&submitted=${submittedParam}&ts=${Date.now()}`;
+        }
+
+        function setSubmittedAtX(xVal, finalUpdate) {
+            const yVal = interpYAtX(xVal);
+            if (yVal === null) {
+                return;
+            }
+            submittedHalftime = xVal;
+            customHalftimeInput.value = submittedHalftime.toFixed(2);
+            renderDotAt(submittedHalftime, yVal);
+            hasSubmittedDot = true;
+            submittedYTextEl.textContent = `${yVal.toFixed(1)} a.u.`;
+            updateTrainButton();
+            if (finalUpdate) {
+                submittedTextEl.textContent = `${submittedHalftime.toFixed(2)} ${unitSuffix}`;
+            }
+        }
+
+        function clickInsidePlotArea(clientX, clientY) {
+            const rect = imgEl.getBoundingClientRect();
+            const px = clientX - rect.left;
+            const py = clientY - rect.top;
+            const b = bounds();
+            return (px >= b.x0 && px <= b.x1 && py >= b.y0 && py <= b.y1);
+        }
+
+        function updateFromClientX(clientX, finalUpdate) {
+            const rect = imgEl.getBoundingClientRect();
+            const px = clientX - rect.left;
+            if (!xData.length || !yData.length) {
+                return false;
+            }
+            const xVal = pxToX(px);
+            setSubmittedAtX(xVal, finalUpdate);
+            return true;
+        }
+
+        if (submittedHalftime !== null) {
+            updateTrainButton();
+        } else {
+            updateTrainButton();
+        }
+
+        imgEl.addEventListener("load", function () {
+            // Server-rendered plot now includes submitted marker + legend.
+            dotEl.style.display = "none";
+        });
+
+        imgEl.addEventListener("mousedown", function (e) {
+            if (!clickInsidePlotArea(e.clientX, e.clientY)) {
+                return;
+            }
+            if (updateFromClientX(e.clientX, false)) {
+                dragging = true;
+                e.preventDefault();
+            }
+        });
+
+        window.addEventListener("mouseup", function () {
+            if (dragging && hasSubmittedDot && submittedHalftime !== null) {
+                submittedTextEl.textContent = `${submittedHalftime.toFixed(2)} ${unitSuffix}`;
+                updateTrainButton();
+                refreshServerPlotWithSubmitted();
+            }
+            dragging = false;
+        });
+
+        window.addEventListener("mousemove", function (e) {
+            if (!dragging || !xData.length || !yData.length) {
+                return;
+            }
+            updateFromClientX(e.clientX, false);
+        });
+    </script>
+
+    <p><a href="/">Back</a></p>
+</body>
+</html>

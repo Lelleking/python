@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>aSyn Analyzer</title>
+</head>
+<body>
+    {% if train_metrics %}
+    <div class="metrics-box">
+        <div><strong>Current accuracy:</strong></div>
+        <div>Aggregation or not: {{ train_metrics.aggregation_pct }}%</div>
+        <div>Half-time: +-{{ train_metrics.halftime_err_pct }}% or +-{{ train_metrics.halftime_err_hours }} h</div>
+    </div>
+    {% endif %}
+
+    <h1>Upload Aggregation Files</h1>
+
+    <div style="margin-bottom:12px; padding:10px 12px; border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc;">
+        {% if user_email %}
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <strong>Signed in as {{ user_email }}</strong>
+            <form action="/auth/logout" method="post" style="margin:0;">
+                <button type="submit" style="background:#64748b;">Log out</button>
+            </form>
+        </div>
+        {% if saved_runs and saved_runs|length > 0 %}
+        <form action="/runs/select" method="post" style="margin-top:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <label for="run-id">Load saved run</label>
+            <select id="run-id" name="run_id">
+                {% for run in saved_runs %}
+                <option value="{{ run.id }}">{{ run.label }} | chromatic {{ run.selected_chromatic }} | {{ run.time_unit }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" style="background:#0f766e;">Load run</button>
+        </form>
+        {% endif %}
+        {% else %}
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+            <form action="/auth/login" method="post" style="margin:0; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <input type="email" name="email" placeholder="email" required>
+                <input type="password" name="password" placeholder="password" required>
+                <button type="submit" style="background:#1d4ed8;">Log in</button>
+            </form>
+            <form action="/auth/register" method="post" style="margin:0; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <input type="email" name="email" placeholder="email" required>
+                <input type="password" name="password" placeholder="password" required>
+                <button type="submit" style="background:#9333ea;">Create account</button>
+            </form>
+        </div>
+        {% if auth_error %}
+        <p style="margin:8px 0 0 0; color:#b91c1c;">{{ auth_error }}</p>
+        {% endif %}
+        {% endif %}
+        <p style="margin:8px 0 0 2px; font-size:0.82rem; color:#64748b;">
+            Sign in to keep processed runs so you can continue later without re-uploading files.
+        </p>
+    </div>
+
+    {% if current_files and current_files|length > 0 %}
+    <h3>Current files (kept between runs)</h3>
+    <ul>
+        {% for filename in current_files %}
+        <li>{{ filename }}</li>
+        {% endfor %}
+    </ul>
+    <form action="/files/clear" method="post" style="margin-bottom:12px;">
+        <button type="submit">Clear files</button>
+    </form>
+    {% endif %}
+
+    <form action="/analyze" method="post" enctype="multipart/form-data">
+        <input type="hidden" name="upload_set_id" value="{{ upload_set_id or '' }}">
+        <label for="time-unit">Time unit</label>
+        <select id="time-unit" name="time_unit">
+            <option value="hours" {% if current_time_unit == 'hours' %}selected{% endif %}>Hours</option>
+            <option value="minutes" {% if current_time_unit == 'minutes' %}selected{% endif %}>Minutes</option>
+            <option value="seconds" {% if current_time_unit == 'seconds' %}selected{% endif %}>Seconds</option>
+        </select>
+        <label for="upload-format">File format</label>
+        <select id="upload-format" name="upload_format">
+            <option value="auto" selected>Auto-detect (recommended)</option>
+            <option value="csv">CSV (already readable)</option>
+            <option value="dat">DAT (convert to CSV)</option>
+        </select>
+        <div id="file-inputs">
+            <input type="file" name="files" accept=".csv,.dat" {% if not current_files %}required{% endif %}>
+        </div>
+        <p style="margin:6px 0 10px 2px; font-size:0.82rem; color:#64748b;">
+            For best merge accuracy, upload files in chronological order.
+            Names like <code>file1</code>, <code>file2</code> are only a backup check.
+        </p>
+        <button type="button" id="add-file-btn" style="background:#475569;">Add file</button>
+        <button type="submit" formaction="/analyze" style="background:#2563eb;">Calculate t½</button>
+        <button type="submit" formaction="/plot/select?plot_type=raw" style="background:#0891b2;">Plot aggregation curve</button>
+        <button type="submit" formaction="/plot/select?plot_type=normalized" style="background:#7c3aed;">Plot normalized aggregation curve</button>
+        <button type="submit" formaction="/aggregation_analysis/start" style="background:#0f766e;">Aggregation analysis</button>
+        <button type="submit" formaction="/control_sigmoid/start" style="background:#ea580c;">Control sigmodial curve fitting</button>
+        <button type="submit" formaction="/convert_amylofit" style="background:#16a34a;">Convert to amylofit format</button>
+    </form>
+
+    <script>
+        const maxFiles = 10;
+        const fileInputs = document.getElementById("file-inputs");
+        const addFileBtn = document.getElementById("add-file-btn");
+
+        addFileBtn.addEventListener("click", function () {
+            const currentInputs = fileInputs.querySelectorAll('input[type="file"]').length;
+            if (currentInputs >= maxFiles) {
+                addFileBtn.disabled = true;
+                return;
+            }
+
+            const input = document.createElement("input");
+            input.type = "file";
+            input.name = "files";
+            input.accept = ".csv,.dat";
+            fileInputs.appendChild(input);
+
+            if (currentInputs + 1 >= maxFiles) {
+                addFileBtn.disabled = true;
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>Select Wells</title>
+</head>
+<body>
+    {% if train_metrics %}
+    <div class="metrics-box">
+        <div><strong>Current accuracy:</strong></div>
+        <div>Aggregation or not: {{ train_metrics.aggregation_pct }}%</div>
+        <div>Half-time: +-{{ train_metrics.halftime_err_pct }}% or +-{{ train_metrics.halftime_err_hours }} h</div>
+    </div>
+    {% endif %}
+
+    <h1>Select wells to plot</h1>
+
+    <p>Files merged: {{ n_files }}</p>
+    <p>Selected chromatic: {{ chromatic }}</p>
+    <p>Time unit: {{ time_unit_suffix }}</p>
+    <p>Plot type: {% if plot_type == 'normalized' %}Normalized aggregation curve{% else %}Aggregation curve{% endif %}</p>
+
+    {% if error %}
+    <p>{{ error }}</p>
+    {% endif %}
+
+    <button type="button" id="select-all-btn">Select all</button>
+    <button type="button" id="clear-all-btn">Clear all</button>
+    <button type="button" id="invert-selection-btn">Invert selection</button>
+
+    <form action="/plot/render" method="post">
+        <input type="hidden" name="dataset_id" value="{{ dataset_id }}">
+        <input type="hidden" id="groups-json" name="groups_json" value='{{ groups | default({}) | tojson }}'>
+
+        <h3>Group together</h3>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+            <input id="group-name" type="text" placeholder="group name">
+            <button type="button" id="add-group-btn">Add/Update group from checked wells</button>
+            <button type="button" id="clear-groups-btn">Clear groups</button>
+        </div>
+
+        <div id="groups-preview" style="margin-bottom:10px;"></div>
+
+        <p><strong>*</strong> = not valid aggregation</p>
+
+        <div id="well-list">
+            {% for well in wells %}
+            <label style="display:inline-block; min-width:80px; margin:4px 8px 4px 0;">
+                <input type="checkbox" name="wells" value="{{ well }}" {% if (selected_wells is not defined) or (well in selected_wells) %}checked{% endif %}>
+                {{ well }}{% if invalid_wells and (well in invalid_wells) %}*{% endif %}
+            </label>
+            {% endfor %}
+        </div>
+
+        <div style="margin-top:12px;">
+            <button type="submit">Generate plot</button>
+        </div>
+    </form>
+
+    <p><a href="/">Back</a></p>
+
+    <script>
+        const selectAllBtn = document.getElementById("select-all-btn");
+        const clearAllBtn = document.getElementById("clear-all-btn");
+        const groupsInput = document.getElementById("groups-json");
+        const groupNameInput = document.getElementById("group-name");
+        const addGroupBtn = document.getElementById("add-group-btn");
+        const clearGroupsBtn = document.getElementById("clear-groups-btn");
+        const groupsPreview = document.getElementById("groups-preview");
+        const groupPalette = [
+            "#3B82F6",
+            "#F59E0B",
+            "#10B981",
+            "#EF4444",
+            "#8B5CF6",
+            "#06B6D4",
+            "#84CC16",
+            "#F97316",
+            "#EC4899",
+            "#6366F1"
+        ];
+
+        function getBoxes() {
+            return document.querySelectorAll('input[type="checkbox"][name="wells"]');
+        }
+
+        function selectedWellValues() {
+            return Array.from(getBoxes()).filter(box => box.checked).map(box => box.value);
+        }
+
+        let groups = {};
+        try {
+            groups = JSON.parse(groupsInput.value || "{}");
+        } catch {
+            groups = {};
+        }
+
+        function syncGroupsToInput() {
+            groupsInput.value = JSON.stringify(groups);
+        }
+
+        function hexToRgba(hex, alpha) {
+            const clean = hex.replace("#", "");
+            const num = parseInt(clean, 16);
+            const r = (num >> 16) & 255;
+            const g = (num >> 8) & 255;
+            const b = num & 255;
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        function applyGroupWellColors(groupColorMap) {
+            const wellToGroup = {};
+            Object.keys(groups).forEach(groupName => {
+                groups[groupName].forEach(well => {
+                    wellToGroup[well] = groupName;
+                });
+            });
+
+            document.querySelectorAll('#well-list input[name="wells"]').forEach(input => {
+                const label = input.closest("label");
+                if (!label) {
+                    return;
+                }
+
+                const well = input.value;
+                const groupName = wellToGroup[well];
+                if (!groupName) {
+                    label.style.backgroundColor = "";
+                    label.style.borderColor = "";
+                    label.style.boxShadow = "";
+                    label.title = "";
+                    return;
+                }
+
+                const base = groupColorMap[groupName];
+                label.style.backgroundColor = hexToRgba(base, 0.18);
+                label.style.borderColor = hexToRgba(base, 0.45);
+                label.style.boxShadow = `inset 0 0 0 1px ${hexToRgba(base, 0.35)}`;
+                label.title = `Group: ${groupName}`;
+            });
+        }
+
+        function renderGroups() {
+            const names = Object.keys(groups).sort();
+            const groupColorMap = {};
+            names.forEach((name, i) => {
+                groupColorMap[name] = groupPalette[i % groupPalette.length];
+            });
+
+            if (!names.length) {
+                groupsPreview.textContent = "No groups defined.";
+                applyGroupWellColors(groupColorMap);
+                syncGroupsToInput();
+                return;
+            }
+
+            const lines = names.map(name => {
+                const color = groupColorMap[name];
+                const swatch = `<span style="display:inline-block;width:10px;height:10px;border-radius:999px;margin-right:6px;vertical-align:middle;background:${color};"></span>`;
+                const trash = `<button type="button" class="group-trash-btn" data-group-name="${name}" title="Delete group">&#128465;</button>`;
+                return `<div class="group-preview-row">${swatch}${name}: ${groups[name].join(', ')} ${trash}</div>`;
+            });
+            groupsPreview.innerHTML = lines.join("");
+            applyGroupWellColors(groupColorMap);
+            syncGroupsToInput();
+        }
+
+        selectAllBtn.addEventListener("click", function () {
+            getBoxes().forEach(box => box.checked = true);
+        });
+
+        clearAllBtn.addEventListener("click", function () {
+            getBoxes().forEach(box => box.checked = false);
+        });
+
+        const invertBtn = document.getElementById("invert-selection-btn");
+        invertBtn.addEventListener("click", function () {
+            getBoxes().forEach(box => box.checked = !box.checked);
+        });
+
+        addGroupBtn.addEventListener("click", function () {
+            const name = (groupNameInput.value || "").trim();
+            const selected = selectedWellValues();
+            if (!name || selected.length === 0) {
+                return;
+            }
+
+            Object.keys(groups).forEach(groupName => {
+                groups[groupName] = groups[groupName].filter(w => !selected.includes(w));
+                if (groups[groupName].length === 0) {
+                    delete groups[groupName];
+                }
+            });
+
+            if (!groups[name]) {
+                groups[name] = [];
+            }
+            groups[name] = Array.from(new Set(groups[name].concat(selected))).sort();
+
+            // Match behavior in t1/2 flow: assigned wells become unchecked.
+            getBoxes().forEach(box => {
+                if (selected.includes(box.value)) {
+                    box.checked = false;
+                }
+            });
+
+            renderGroups();
+        });
+
+        clearGroupsBtn.addEventListener("click", function () {
+            groups = {};
+            renderGroups();
+        });
+
+        groupsPreview.addEventListener("click", function (e) {
+            const btn = e.target.closest(".group-trash-btn");
+            if (!btn) {
+                return;
+            }
+            const name = btn.dataset.groupName;
+            if (!name) {
+                return;
+            }
+            delete groups[name];
+            renderGroups();
+        });
+
+        renderGroups();
+    </script>
+</body>
+</html>

@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>Results</title>
+    <style>
+        .agg-curve-col {
+            display: none;
+            min-width: 260px;
+            width: 260px;
+        }
+        .curves-visible .agg-curve-col {
+            display: table-cell;
+        }
+        .curves-visible tbody tr {
+            height: 120px;
+        }
+        .mini-curve-wrap {
+            width: 240px;
+            height: 100px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            background: #ffffff;
+            overflow: hidden;
+        }
+        .mini-curve-wrap svg {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    {% if train_metrics %}
+    <div class="metrics-box">
+        <div><strong>Current accuracy:</strong></div>
+        <div>Aggregation or not: {{ train_metrics.aggregation_pct }}%</div>
+        <div>Half-time: +-{{ train_metrics.halftime_err_pct }}% or +-{{ train_metrics.halftime_err_hours }} h</div>
+    </div>
+    {% endif %}
+
+    <h1>Analysis Result</h1>
+
+    {% if error %}
+    <p>{{ error }}</p>
+    {% endif %}
+
+    {% if results %}
+    <p>Files merged: {{ n_files }}</p>
+    <p>Selected chromatic: {{ chromatic }}</p>
+
+    <form method="post">
+        <input type="hidden" name="thalf_session_id" value="{{ thalf_session_id }}">
+        <input type="hidden" id="thalf-groups-json" name="thalf_groups_json" value='{{ thalf_groups | default({}) | tojson }}'>
+
+        <div style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" id="select-all-btn">Select all</button>
+            <button type="button" id="clear-all-btn">Clear all</button>
+            <button type="button" id="invert-selection-btn">Invert selection</button>
+            <label style="display:inline-flex; align-items:center; gap:6px; margin-left:8px; font-size:0.92rem;">
+                <input type="checkbox" id="show-agg-curves-toggle">
+                show aggregation curves
+            </label>
+        </div>
+
+        <h3>Group Setup</h3>
+        <div style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <input type="text" id="group-name" placeholder="group name">
+            <button type="button" id="assign-group-btn">Assign checked wells</button>
+            <button type="button" id="clear-groups-btn">Clear group data</button>
+        </div>
+
+        <div id="group-preview" style="display:none;"></div>
+
+        <table id="results-table" border="1" cellpadding="6" cellspacing="0">
+            <thead>
+                <tr>
+                    <th>Select</th>
+                    <th>Well</th>
+                    <th>Halftime</th>
+                    <th>Group</th>
+                    <th class="agg-curve-col">Aggregation curve</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in results %}
+                <tr data-well-row="{{ row.well }}">
+                    <td><input type="checkbox" name="wells" value="{{ row.well }}" {% if row.halftime != 'N/A' %}checked{% endif %}></td>
+                    <td>{{ row.well }}</td>
+                    <td>{{ row.halftime }}</td>
+                    <td class="group-cell" data-well="{{ row.well }}">-</td>
+                    <td class="agg-curve-col">
+                        <div class="mini-curve-wrap">
+                            <svg class="mini-curve" data-well="{{ row.well }}" viewBox="0 0 240 100" preserveAspectRatio="none"></svg>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="submit" formaction="/plot/thalf?scale=log">Plot t1/2 versus log(conc)</button>
+            <button type="submit" formaction="/plot/thalf?scale=linear">Plot t1/2 vs conc</button>
+        </div>
+
+        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="submit" formaction="/control_halftimes/start">Control half times</button>
+        </div>
+    </form>
+    {% endif %}
+
+    <p><a href="/">Back</a></p>
+
+    <script>
+        const selectAllBtn = document.getElementById("select-all-btn");
+        const clearAllBtn = document.getElementById("clear-all-btn");
+        const invertBtn = document.getElementById("invert-selection-btn");
+        const assignBtn = document.getElementById("assign-group-btn");
+        const clearGroupsBtn = document.getElementById("clear-groups-btn");
+        const groupNameInput = document.getElementById("group-name");
+        const groupPreview = document.getElementById("group-preview");
+        const groupsInput = document.getElementById("thalf-groups-json");
+        const showAggCurvesToggle = document.getElementById("show-agg-curves-toggle");
+        const resultsTable = document.getElementById("results-table");
+        const resultsTbody = resultsTable ? resultsTable.querySelector("tbody") : null;
+        const curvePreviews = {{ curve_previews | default({}) | tojson }};
+        let miniCurvesRendered = false;
+        let currentGroupColorMap = {};
+        let expandedGroups = new Set();
+        const groupPalette = [
+            "#3B82F6",
+            "#F59E0B",
+            "#10B981",
+            "#EF4444",
+            "#8B5CF6",
+            "#06B6D4",
+            "#84CC16",
+            "#F97316",
+            "#EC4899",
+            "#6366F1"
+        ];
+
+        let groups = {};
+        try {
+            groups = JSON.parse(groupsInput.value || "{}");
+        } catch {
+            groups = {};
+        }
+
+        function getWellBoxes() {
+            return document.querySelectorAll('input[type="checkbox"][name="wells"]');
+        }
+
+        function checkedWells() {
+            return Array.from(getWellBoxes()).filter(b => b.checked).map(b => b.value);
+        }
+
+        function syncGroupsInput() {
+            groupsInput.value = JSON.stringify(groups);
+        }
+
+        let saveTimer = null;
+        function scheduleGroupPersist() {
+            const thalfIdEl = document.querySelector('input[name="thalf_session_id"]');
+            if (!thalfIdEl || !groupsInput) {
+                return;
+            }
+            const thalfSessionId = thalfIdEl.value || "";
+            if (!thalfSessionId) {
+                return;
+            }
+            if (saveTimer) {
+                clearTimeout(saveTimer);
+            }
+            saveTimer = setTimeout(function () {
+                const body = new URLSearchParams();
+                body.set("thalf_session_id", thalfSessionId);
+                body.set("thalf_groups_json", groupsInput.value || "{}");
+                fetch("/groups/save_from_thalf", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/x-www-form-urlencoded"},
+                    body: body.toString()
+                }).catch(() => {});
+            }, 250);
+        }
+
+        function hexToRgba(hex, alpha) {
+            const clean = hex.replace("#", "");
+            const num = parseInt(clean, 16);
+            const r = (num >> 16) & 255;
+            const g = (num >> 8) & 255;
+            const b = num & 255;
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        function applyGroupRowColors(groupColorMap) {
+            const wellToGroup = {};
+            Object.keys(groups).forEach(groupName => {
+                groups[groupName].forEach(well => {
+                    wellToGroup[well] = groupName;
+                });
+            });
+
+            document.querySelectorAll('.group-cell').forEach(cell => {
+                const well = cell.dataset.well;
+                const row = cell.closest("tr");
+                if (!row) {
+                    return;
+                }
+
+                const groupName = wellToGroup[well];
+                if (!groupName) {
+                    row.style.backgroundColor = "";
+                    row.style.boxShadow = "";
+                    row.title = "";
+                    return;
+                }
+
+                const base = groupColorMap[groupName];
+                row.style.backgroundColor = hexToRgba(base, 0.10);
+                row.style.boxShadow = `inset 3px 0 0 ${hexToRgba(base, 0.7)}`;
+                row.title = `Group: ${groupName}`;
+            });
+        }
+
+        function rowForWell(well) {
+            if (!well) {
+                return null;
+            }
+            return document.querySelector(`tr[data-well-row="${well}"]`);
+        }
+
+        function clearMergedGroupRows() {
+            if (!resultsTbody) {
+                return;
+            }
+            resultsTbody.querySelectorAll("tr.group-merged-row").forEach(row => row.remove());
+        }
+
+        function updateGroupedRowView() {
+            if (!resultsTbody) {
+                return;
+            }
+            clearMergedGroupRows();
+
+            // Show all well rows before potentially collapsing again.
+            resultsTbody.querySelectorAll("tr[data-well-row]").forEach(row => {
+                row.style.display = "";
+            });
+
+            const names = Object.keys(groups).sort();
+            names.forEach(name => {
+                const wells = (groups[name] || []).filter(w => rowForWell(w));
+                if (wells.length === 0) {
+                    return;
+                }
+                const expanded = expandedGroups.has(name);
+
+                const firstRow = rowForWell(wells[0]);
+                if (!firstRow) {
+                    return;
+                }
+
+                if (!expanded) {
+                    wells.forEach(well => {
+                        const row = rowForWell(well);
+                        if (row) {
+                            row.style.display = "none";
+                        }
+                    });
+                }
+
+                const mergedRow = document.createElement("tr");
+                mergedRow.className = "group-merged-row";
+                const td = document.createElement("td");
+                const columnCount = firstRow.children.length || 4;
+                td.colSpan = columnCount;
+                const color = currentGroupColorMap[name] || "#3B82F6";
+                td.style.backgroundColor = hexToRgba(color, 0.12);
+                td.style.borderLeft = `3px solid ${hexToRgba(color, 0.8)}`;
+                td.style.padding = "10px 12px";
+                td.innerHTML = `
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+                        <div>
+                            <span style="display:inline-block;width:10px;height:10px;border-radius:999px;margin-right:8px;vertical-align:middle;background:${color};"></span>
+                            <strong>${name}</strong>: ${wells.join(", ")}
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <button type="button" class="group-show-all-inline-btn" data-group-name="${name}">${expanded ? "Merge" : "Show all"}</button>
+                            <button type="button" class="group-trash-btn" data-group-name="${name}" title="Delete group">&#128465;</button>
+                        </div>
+                    </div>
+                `;
+                mergedRow.appendChild(td);
+                firstRow.parentNode.insertBefore(mergedRow, firstRow);
+            });
+        }
+
+        function updateTableCells() {
+            const wellToGroup = {};
+            Object.keys(groups).forEach(groupName => {
+                groups[groupName].forEach(well => {
+                    wellToGroup[well] = groupName;
+                });
+            });
+            document.querySelectorAll('.group-cell').forEach(cell => {
+                const well = cell.dataset.well;
+                cell.textContent = wellToGroup[well] || "-";
+            });
+        }
+
+        function renderPreview() {
+            const labels = Object.keys(groups).sort();
+            const groupColorMap = {};
+            labels.forEach((label, i) => {
+                groupColorMap[label] = groupPalette[i % groupPalette.length];
+            });
+            currentGroupColorMap = groupColorMap;
+            expandedGroups = new Set(Array.from(expandedGroups).filter(name => labels.includes(name)));
+
+            applyGroupRowColors(groupColorMap);
+
+            updateTableCells();
+            syncGroupsInput();
+            scheduleGroupPersist();
+            updateGroupedRowView();
+        }
+
+        function renderMiniCurves() {
+            if (miniCurvesRendered) {
+                return;
+            }
+            const svgs = document.querySelectorAll(".mini-curve");
+            svgs.forEach(svg => {
+                const well = svg.dataset.well;
+                const d = curvePreviews[well];
+                if (!d || !Array.isArray(d.x) || !Array.isArray(d.y) || d.x.length < 2 || d.y.length < 2) {
+                    svg.innerHTML = "";
+                    return;
+                }
+                const xVals = d.x;
+                const yVals = d.y;
+                const n = Math.min(xVals.length, yVals.length);
+                if (n < 2) {
+                    svg.innerHTML = "";
+                    return;
+                }
+                const minX = Math.min(...xVals.slice(0, n));
+                const maxX = Math.max(...xVals.slice(0, n));
+                const minY = Math.min(...yVals.slice(0, n));
+                const maxY = Math.max(...yVals.slice(0, n));
+                const w = 240;
+                const h = 100;
+                const padL = 8;
+                const padR = 8;
+                const padT = 8;
+                const padB = 10;
+                const innerW = w - padL - padR;
+                const innerH = h - padT - padB;
+                const xDen = (maxX - minX) || 1;
+                const yDen = (maxY - minY) || 1;
+                const sx = x => padL + ((x - minX) / xDen) * innerW;
+                const sy = y => padT + innerH - ((y - minY) / yDen) * innerH;
+
+                let pathD = "";
+                for (let i = 0; i < n; i++) {
+                    const px = sx(xVals[i]);
+                    const py = sy(yVals[i]);
+                    pathD += (i === 0 ? `M ${px} ${py}` : ` L ${px} ${py}`);
+                }
+
+                let dotSvg = "";
+                if (d.t_half !== null && d.t_half_y !== null) {
+                    const dx = sx(d.t_half);
+                    const dy = sy(d.t_half_y);
+                    dotSvg = `<circle cx="${dx}" cy="${dy}" r="3.8" fill="#ef4444" stroke="#ffffff" stroke-width="1.2"></circle>`;
+                }
+
+                svg.innerHTML = `
+                    <path d="${pathD}" fill="none" stroke="#3b82f6" stroke-width="1.8" stroke-linecap="round"></path>
+                    ${dotSvg}
+                `;
+            });
+            miniCurvesRendered = true;
+        }
+
+        function toggleAggregationCurveColumn() {
+            if (!resultsTable || !showAggCurvesToggle) {
+                return;
+            }
+            const on = showAggCurvesToggle.checked;
+            if (on) {
+                resultsTable.classList.add("curves-visible");
+                renderMiniCurves();
+            } else {
+                resultsTable.classList.remove("curves-visible");
+            }
+        }
+
+        if (selectAllBtn) {
+            selectAllBtn.addEventListener("click", function () {
+                getWellBoxes().forEach(box => box.checked = true);
+            });
+        }
+
+        if (clearAllBtn) {
+            clearAllBtn.addEventListener("click", function () {
+                getWellBoxes().forEach(box => box.checked = false);
+            });
+        }
+
+        if (invertBtn) {
+            invertBtn.addEventListener("click", function () {
+                getWellBoxes().forEach(box => box.checked = !box.checked);
+            });
+        }
+
+        if (assignBtn) {
+            assignBtn.addEventListener("click", function () {
+                const groupName = (groupNameInput.value || "").trim();
+                const wells = checkedWells();
+
+                if (!groupName || wells.length === 0) {
+                    return;
+                }
+
+                // Remove selected wells from existing groups first.
+                Object.keys(groups).forEach(name => {
+                    groups[name] = groups[name].filter(w => !wells.includes(w));
+                    if (groups[name].length === 0) {
+                        delete groups[name];
+                    }
+                });
+
+                if (!groups[groupName]) {
+                    groups[groupName] = [];
+                }
+                groups[groupName] = Array.from(new Set(groups[groupName].concat(wells))).sort();
+
+                wells.forEach(well => {
+                    getWellBoxes().forEach(box => {
+                        if (box.value === well) {
+                            box.checked = false;
+                        }
+                    });
+                });
+
+                renderPreview();
+            });
+        }
+
+        if (clearGroupsBtn) {
+            clearGroupsBtn.addEventListener("click", function () {
+                groups = {};
+                renderPreview();
+            });
+        }
+
+        if (resultsTbody) {
+            resultsTbody.addEventListener("click", function (e) {
+                const toggleBtn = e.target.closest(".group-show-all-inline-btn");
+                if (toggleBtn) {
+                    const groupName = toggleBtn.dataset.groupName;
+                    if (!groupName) {
+                        return;
+                    }
+                    if (expandedGroups.has(groupName)) {
+                        expandedGroups.delete(groupName);
+                    } else {
+                        expandedGroups.add(groupName);
+                    }
+                    updateGroupedRowView();
+                    return;
+                }
+
+                const trashBtn = e.target.closest(".group-trash-btn");
+                if (trashBtn) {
+                    const groupName = trashBtn.dataset.groupName;
+                    if (!groupName) {
+                        return;
+                    }
+                    delete groups[groupName];
+                    expandedGroups.delete(groupName);
+                    renderPreview();
+                }
+            });
+        }
+
+        if (groupPreview) {
+            renderPreview();
+        }
+        if (showAggCurvesToggle) {
+            showAggCurvesToggle.addEventListener("change", toggleAggregationCurveColumn);
+            toggleAggregationCurveColumn();
+        }
+    </script>
+</body>
+</html>
