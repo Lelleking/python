@@ -99,7 +99,18 @@
             </tbody>
         </table>
 
-        <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+        <details style="margin-top:12px;">
+            <summary style="cursor:pointer; display:inline-block; border:1px solid #cbd5e1; border-radius:8px; padding:6px 10px; background:#f8fafc;">
+                Change plot / axis titles
+            </summary>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+                <input type="text" name="custom_x_label" placeholder="x-axis title (optional)" value="{{ custom_titles.x if custom_titles else '' }}">
+                <input type="text" name="custom_y_label" placeholder="y-axis title (optional)" value="{{ custom_titles.y if custom_titles else '' }}">
+                <input type="text" name="custom_plot_title" placeholder="plot headline (optional)" value="{{ custom_titles.title if custom_titles else '' }}">
+            </div>
+        </details>
+
+        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
             <button type="submit" formaction="/plot/thalf?scale=log">Plot t1/2 versus log(conc)</button>
             <button type="submit" formaction="/plot/thalf?scale=linear">Plot t1/2 vs conc</button>
         </div>

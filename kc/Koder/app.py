@@ -15,8 +15,8 @@ from flask import Flask, render_template, request, redirect, url_for, session, s
 import joblib
 import numpy as np
 import pandas as pd
-from scipy.optimize import curve_fit
-from scipy.integrate import trapezoid
+from scipy.optimize import curve_fit, minimize
+from scipy.interpolate import interp1d
 from scipy.signal import savgol_filter
 from ana2 import rule_based_aggregation
 from werkzeug.utils import secure_filename
@@ -41,7 +41,8 @@ SAVED_RUNS_DIR = os.path.join(BASE_DIR, "Koder", "saved_runs")
 FEATURE_COLS_CLS = [
     "amplitude",
     "max_slope",
-    "auc",
+    "lag_time",
+    "biphasic_ratio",
     "baseline_noise",
     "time_10",
     "time_50",
@@ -302,9 +303,15 @@ init_auth_db()
 def load_models():
     global _clf_model, _reg_model
     if _clf_model is None:
-        _clf_model = joblib.load(os.path.join(MODEL_PATH, "classifier.pkl"))
+        try:
+            _clf_model = joblib.load(os.path.join(MODEL_PATH, "classifier.pkl"))
+        except Exception:
+            _clf_model = None
     if _reg_model is None:
-        _reg_model = joblib.load(os.path.join(MODEL_PATH, "regressor.pkl"))
+        try:
+            _reg_model = joblib.load(os.path.join(MODEL_PATH, "regressor.pkl"))
+        except Exception:
+            _reg_model = None
     return _clf_model, _reg_model
 
 
@@ -346,11 +353,17 @@ def load_sigmoid_models():
     if _baseline_reg_model is None:
         baseline_path = os.path.join(MODEL_PATH, "baseline_regressor.pkl")
         if os.path.exists(baseline_path):
-            _baseline_reg_model = joblib.load(baseline_path)
+            try:
+                _baseline_reg_model = joblib.load(baseline_path)
+            except Exception:
+                _baseline_reg_model = None
     if _plateau_reg_model is None:
         plateau_path = os.path.join(MODEL_PATH, "plateau_regressor.pkl")
         if os.path.exists(plateau_path):
-            _plateau_reg_model = joblib.load(plateau_path)
+            try:
+                _plateau_reg_model = joblib.load(plateau_path)
+            except Exception:
+                _plateau_reg_model = None
     return _baseline_reg_model, _plateau_reg_model
 
 
@@ -826,13 +839,34 @@ def extract_features_for_selected_chromatic(time_sec, wells_dict):
         time_50 = time[np.argmax(norm_signal >= 0.5)] if np.any(norm_signal >= 0.5) else 0
         time_90 = time[np.argmax(norm_signal >= 0.9)] if np.any(norm_signal >= 0.9) else 0
 
-        auc = trapezoid(smooth_signal[start_idx:end_idx], time[start_idx:end_idx])
         fit_info = calculate_halftime_trimmed(time, smooth_signal, start_idx, end_idx)
         t_half_fit = fit_info.get("t_half", np.nan)
         if np.isnan(t_half_fit):
             t_half_fit = 0
         fit_r2 = float(fit_info.get("fit_r2", 0.0))
         fit_rmse = float(fit_info.get("fit_rmse", np.nan))
+
+        # Tangent-based lag time at max slope point.
+        i_max = int(np.argmax(slopes))
+        i_tan = int(min(n - 1, i_max + (w // 2)))
+        t_max = float(time[i_tan])
+        y_max = float(smooth_signal[i_tan])
+        lag_time = t_max - ((y_max - baseline) / max_slope)
+        if not np.isfinite(lag_time) or lag_time < 0:
+            lag_time = 0.0
+
+        # Biphasic ratio: detect a second distinct slope peak after a dip below 50% of peak1.
+        peak1 = float(max_slope)
+        peak1_idx = i_max
+        min_sep = max(3, int(0.05 * len(slopes)))
+        peak2 = 0.0
+        for j in range(peak1_idx + min_sep, len(slopes)):
+            between = slopes[peak1_idx:j + 1]
+            if between.size == 0:
+                continue
+            if np.min(between) < 0.5 * peak1 and slopes[j] > peak2:
+                peak2 = float(slopes[j])
+        biphasic_ratio = (peak2 / peak1) if peak2 > 0 else 0.0
 
         baseline_slope = 0.0
         if baseline_end >= 3:
@@ -846,7 +880,8 @@ def extract_features_for_selected_chromatic(time_sec, wells_dict):
         features[well] = {
             "amplitude": amplitude,
             "max_slope": max_slope,
-            "auc": auc,
+            "lag_time": lag_time,
+            "biphasic_ratio": biphasic_ratio,
             "baseline_noise": noise,
             "baseline_slope": baseline_slope,
             "baseline_level": baseline,
@@ -911,11 +946,25 @@ def predict_well_halftimes(time_sec, wells):
             continue
 
         i = row_idx[0]
-        X_cls = features_df.loc[i, FEATURE_COLS_CLS].to_frame().T
+        row_dict = features_df.loc[i].to_dict()
+        X_cls = pd.DataFrame([row_dict]).reindex(columns=FEATURE_COLS_CLS, fill_value=0.0)
         rule = rule_based_aggregation(feature_dict_single)
-        ml_proba = clf.predict_proba(X_cls)[0][1]
+        cls_model_failed = False
+        if clf is None:
+            cls_model_failed = True
+            ml_proba = 1.0 if rule else 0.0
+        else:
+            try:
+                ml_proba = float(clf.predict_proba(X_cls)[0][1])
+            except Exception:
+                # Typical when the loaded model expects legacy features (e.g. auc).
+                cls_model_failed = True
+                ml_proba = 1.0 if rule else 0.0
 
-        if rule and ml_proba > 0.7:
+        if cls_model_failed:
+            # Requested fallback: rely on rule engine when ML classification mismatches.
+            aggregation = bool(rule)
+        elif rule and ml_proba > 0.7:
             aggregation = True
         elif (not rule) and ml_proba < 0.3:
             aggregation = False
@@ -923,10 +972,7 @@ def predict_well_halftimes(time_sec, wells):
             aggregation = ml_proba > 0.5
 
         if aggregation:
-            X_reg = features_df.loc[i, FEATURE_COLS_REG].to_frame().T
-            pred_log = reg.predict(X_reg)[0]
-            t_half_ml = float(np.exp(pred_log))
-
+            X_reg = pd.DataFrame([row_dict]).reindex(columns=FEATURE_COLS_REG, fill_value=0.0)
             # Primary estimate: half-level between predicted baseline and plateau,
             # mapped to x on the measured curve.
             t_half_curve = None
@@ -941,31 +987,52 @@ def predict_well_halftimes(time_sec, wells):
                 y_half = float(baseline_pred) + (float(plateau_pred) - float(baseline_pred)) / 2.0
                 t_half_curve = estimate_x_hours_from_y(time_sec, wells[well], y_half)
 
-            fit_r2 = float(feature_dict_single.get("fit_r2", 0.0))
-            fit_rmse = float(feature_dict_single.get("fit_rmse", np.nan))
-            baseline_slope = float(feature_dict_single.get("baseline_slope", 0.0))
-            time_span_h = max(1e-6, float(time_sec[-1] - time_sec[0]) / 3600.0) if len(time_sec) > 1 else 1.0
-            drift_ratio = abs(baseline_slope) * min(time_span_h, max(0.5, float(feature_dict_single.get("time_10", 0.0)))) / max(amplitude, 1e-6)
-            residual_ratio = (
-                fit_rmse / max(amplitude, 1e-6)
-                if np.isfinite(fit_rmse)
-                else 1.0
-            )
-
-            # Dynamic confidence weighting:
-            # - start from 4PL fit R2
-            # - down-weight for baseline drift and poor sigmoid residuals
-            curve_weight = 0.15 + 0.8 * clamp01(fit_r2)
-            if drift_ratio > 0.12:
-                curve_weight *= 0.72
-            if residual_ratio > 0.22:
-                curve_weight *= 0.72
-            curve_weight = clamp01(curve_weight)
-
-            if t_half_curve is not None and np.isfinite(t_half_curve):
-                t_half = float(curve_weight * t_half_curve + (1.0 - curve_weight) * t_half_ml)
+            reg_model_failed = False
+            t_half_ml = None
+            if reg is None:
+                reg_model_failed = True
             else:
-                t_half = t_half_ml
+                try:
+                    pred_log = reg.predict(X_reg)[0]
+                    t_half_ml = float(np.exp(pred_log))
+                except Exception:
+                    # Typical when the loaded model expects legacy features (e.g. auc).
+                    reg_model_failed = True
+
+            if reg_model_failed:
+                # Requested fallback: use only mathematical curve estimate.
+                if t_half_curve is None or not np.isfinite(t_half_curve):
+                    results.append({"well": well, "halftime": "N/A"})
+                    well_halftime[well] = None
+                    continue
+                t_half = float(t_half_curve)
+                curve_weight = 1.0
+            else:
+                fit_r2 = float(feature_dict_single.get("fit_r2", 0.0))
+                fit_rmse = float(feature_dict_single.get("fit_rmse", np.nan))
+                baseline_slope = float(feature_dict_single.get("baseline_slope", 0.0))
+                time_span_h = max(1e-6, float(time_sec[-1] - time_sec[0]) / 3600.0) if len(time_sec) > 1 else 1.0
+                drift_ratio = abs(baseline_slope) * min(time_span_h, max(0.5, float(feature_dict_single.get("time_10", 0.0)))) / max(amplitude, 1e-6)
+                residual_ratio = (
+                    fit_rmse / max(amplitude, 1e-6)
+                    if np.isfinite(fit_rmse)
+                    else 1.0
+                )
+
+                # Dynamic confidence weighting:
+                # - start from 4PL fit R2
+                # - down-weight for baseline drift and poor sigmoid residuals
+                curve_weight = 0.15 + 0.8 * clamp01(fit_r2)
+                if drift_ratio > 0.12:
+                    curve_weight *= 0.72
+                if residual_ratio > 0.22:
+                    curve_weight *= 0.72
+                curve_weight = clamp01(curve_weight)
+
+                if t_half_curve is not None and np.isfinite(t_half_curve):
+                    t_half = float(curve_weight * t_half_curve + (1.0 - curve_weight) * t_half_ml)
+                else:
+                    t_half = float(t_half_ml)
 
             max_h = float((float(time_sec[-1]) - float(time_sec[0])) / 3600.0) if len(time_sec) > 1 else t_half
             if max_h > 0:
@@ -1002,11 +1069,12 @@ def predict_well_halftimes(time_sec, wells):
                 w_curve *= 0.55
 
         t_curve = info.get("t_half_curve")
-        t_ml = float(info.get("t_half_ml", t_curr))
+        t_ml_raw = info.get("t_half_ml")
+        t_ml = float(t_ml_raw) if (t_ml_raw is not None and np.isfinite(t_ml_raw)) else t_curr
         if t_curve is not None and np.isfinite(t_curve):
             t_final = float(w_curve * float(t_curve) + (1.0 - w_curve) * t_ml)
         else:
-            t_final = t_ml
+            t_final = float(t_ml)
 
         max_h = float((float(time_sec[-1]) - float(time_sec[0])) / 3600.0) if len(time_sec) > 1 else t_final
         if max_h > 0:
@@ -1062,7 +1130,8 @@ def predict_well_sigmoid_points(time_sec, wells):
             continue
 
         i = row_idx[0]
-        X_bp = features_df.loc[i, FEATURE_COLS_BP].to_frame().T
+        row_dict = features_df.loc[i].to_dict()
+        X_bp = pd.DataFrame([row_dict]).reindex(columns=FEATURE_COLS_BP, fill_value=0.0)
         try:
             baseline_pred = float(baseline_reg.predict(X_bp)[0])
             plateau_pred = float(plateau_reg.predict(X_bp)[0])
@@ -1084,6 +1153,28 @@ def parse_optional_float(value):
     return float(value)
 
 
+def parse_custom_plot_titles(form):
+    if form is None:
+        form = {}
+    x_label = (form.get("custom_x_label", "") or "").strip()
+    y_label = (form.get("custom_y_label", "") or "").strip()
+    plot_title = (form.get("custom_plot_title", "") or "").strip()
+    return {
+        "x": x_label,
+        "y": y_label,
+        "title": plot_title,
+    }
+
+
+def resolve_plot_titles(custom_titles, default_x, default_y, default_title):
+    custom_titles = custom_titles or {}
+    return (
+        (custom_titles.get("x") or default_x),
+        (custom_titles.get("y") or default_y),
+        (custom_titles.get("title") or default_title),
+    )
+
+
 def build_interactive_plot_payload(
     time_sec,
     wells_dict,
@@ -1094,6 +1185,7 @@ def build_interactive_plot_payload(
     show_halftime=False,
     show_baseline=False,
     show_plateau=False,
+    normalized=False,
 ):
     x_vals = time_axis_from_seconds(time_sec, time_unit).tolist() if len(time_sec) > 0 else []
     palette = [
@@ -1108,11 +1200,19 @@ def build_interactive_plot_payload(
         y = wells_dict.get(well, [])
         if not x_vals or not y or len(y) != len(x_vals):
             continue
+        y_arr = np.array(y, dtype=float)
+        y_min = float(np.min(y_arr)) if len(y_arr) else 0.0
+        y_max = float(np.max(y_arr)) if len(y_arr) else 1.0
+        y_scale = (y_max - y_min) if (y_max - y_min) != 0 else 1.0
+        if normalized:
+            y_plot = ((y_arr - y_min) / y_scale).tolist()
+        else:
+            y_plot = [float(v) for v in y_arr]
         color = palette[i % len(palette)]
         trace = {
             "well": well,
             "color": color,
-            "y": [float(v) for v in y],
+            "y": y_plot,
             "dots": [],
         }
 
@@ -1122,7 +1222,8 @@ def build_interactive_plot_payload(
                 xh = hours_to_unit(t_half_h, time_unit)
                 yh = estimate_y_from_x_hours(time_sec, y, t_half_h)
                 if yh is not None:
-                    trace["dots"].append({"kind": "halftime", "x": float(xh), "y": float(yh), "color": "#EF4444"})
+                    y_dot = float((yh - y_min) / y_scale) if normalized else float(yh)
+                    trace["dots"].append({"kind": "halftime", "x": float(xh), "y": y_dot, "color": "#EF4444"})
 
         pred = sigmoid_preds.get(well, {})
         if show_baseline:
@@ -1130,17 +1231,347 @@ def build_interactive_plot_payload(
             if b is not None:
                 xh = estimate_x_hours_from_y(time_sec, y, b)
                 if xh is not None:
-                    trace["dots"].append({"kind": "baseline", "x": float(hours_to_unit(xh, time_unit)), "y": float(b), "color": "#10B981"})
+                    y_dot = float((float(b) - y_min) / y_scale) if normalized else float(b)
+                    trace["dots"].append({"kind": "baseline", "x": float(hours_to_unit(xh, time_unit)), "y": y_dot, "color": "#10B981"})
         if show_plateau:
             p = pred.get("plateau")
             if p is not None:
                 xh = estimate_x_hours_from_y(time_sec, y, p)
                 if xh is not None:
-                    trace["dots"].append({"kind": "plateau", "x": float(hours_to_unit(xh, time_unit)), "y": float(p), "color": "#F59E0B"})
+                    y_dot = float((float(p) - y_min) / y_scale) if normalized else float(p)
+                    trace["dots"].append({"kind": "plateau", "x": float(hours_to_unit(xh, time_unit)), "y": y_dot, "color": "#F59E0B"})
 
         traces.append(trace)
 
     return {"x": [float(v) for v in x_vals], "traces": traces}
+
+
+def _global_fit_model_norm(t, log_params, cond):
+    # Global combined rate constants in log-space.
+    kn_plus = float(np.exp(log_params[0]))   # k_n * k_+
+    k2_plus = float(np.exp(log_params[1]))   # k_2 * k_+
+    km_sat = float(np.exp(log_params[4]))    # saturation constant (Michaelis-Menten-like)
+
+    m0 = max(1e-12, float(cond))
+    nc = float(log_params[2])
+    n2 = float(log_params[3])
+
+    # Safe power evaluation in log-domain to avoid overflow for large n2/conc.
+    log_m0 = math.log(max(1e-24, m0))
+    m0_pow_n2 = float(np.exp(np.clip(n2 * log_m0, -700.0, 700.0)))
+    sec_term = float(np.exp(np.clip((n2 + 1.0) * log_m0, -700.0, 700.0)))
+    sat_den = 1.0 + (m0_pow_n2 / max(1e-24, km_sat))
+    sec_eff = sec_term / max(1e-24, sat_den)
+
+    kappa = np.sqrt(max(1e-24, 2.0 * k2_plus * sec_eff))
+    lambda_ = np.sqrt(max(1e-24, 2.0 * kn_plus * (m0 ** (nc + 1.0))))
+    C = (lambda_ ** 2) / max(1e-24, 2.0 * (kappa ** 2))
+
+    # Numerically stable evaluation of:
+    # y_norm = 1 - exp(-C * (cosh(kappa*t) - 1))
+    u = np.clip(kappa * np.array(t, dtype=float), -60.0, 60.0)
+    cosh_term = np.cosh(u) - 1.0
+    expo_arg = np.clip(-C * cosh_term, -700.0, 0.0)
+    y_norm = 1.0 - np.exp(expo_arg)
+    return np.clip(y_norm, 0.0, 1.0)
+
+
+def run_global_fit(
+    time_sec,
+    wells_dict,
+    selected_wells,
+    time_unit="hours",
+    well_conditions=None,
+    n_restarts=12,
+    well_halftime=None,
+    sigmoid_preds=None,
+    custom_titles=None,
+    smart_init_enabled=False,
+    merged_normalized=False,
+):
+    x = np.array(time_axis_from_seconds(time_sec, time_unit), dtype=float)
+    if len(x) < 3:
+        raise ValueError("För få tidspunkter för global fitting.")
+
+    # Aggregation gating via ML classifier (with robust fallback to rules).
+    features = extract_features_for_selected_chromatic(time_sec, wells_dict)
+    clf, _ = load_models()
+    features_df = pd.DataFrame.from_dict(features, orient="index")
+    if len(features_df) > 0:
+        features_df.reset_index(inplace=True)
+        features_df.rename(columns={"index": "Well"}, inplace=True)
+
+    if sigmoid_preds is None:
+        try:
+            sigmoid_preds = predict_well_sigmoid_points(time_sec, wells_dict)
+        except Exception:
+            sigmoid_preds = {}
+    if well_halftime is None:
+        well_halftime = {}
+
+    datasets = []
+    cond_map = well_conditions or {}
+    for well in selected_wells:
+        y = np.array(wells_dict.get(well, []), dtype=float)
+        if len(y) != len(x):
+            continue
+        if well not in features:
+            continue
+
+        f = features[well]
+        amp_raw = float(f.get("amplitude", 0.0))
+        noise = float(f.get("baseline_noise", 0.0))
+        snr = amp_raw / max(noise, 1e-9)
+        if float(f.get("max_signal", 0.0)) < 10000 or snr < 6.0:
+            continue
+
+        rule = rule_based_aggregation(f)
+        row_idx = features_df.index[features_df["Well"] == well]
+        if len(row_idx) == 0:
+            continue
+        row_dict = features_df.loc[int(row_idx[0])].to_dict()
+        X_cls = pd.DataFrame([row_dict]).reindex(columns=FEATURE_COLS_CLS, fill_value=0.0)
+        cls_failed = False
+        if clf is None:
+            cls_failed = True
+            ml_proba = 1.0 if rule else 0.0
+        else:
+            try:
+                ml_proba = float(clf.predict_proba(X_cls)[0][1])
+            except Exception:
+                cls_failed = True
+                ml_proba = 1.0 if rule else 0.0
+
+        if cls_failed:
+            is_aggregating = bool(rule)
+        elif rule and ml_proba > 0.7:
+            is_aggregating = True
+        elif (not rule) and ml_proba < 0.3:
+            is_aggregating = False
+        else:
+            is_aggregating = ml_proba > 0.5
+
+        if not is_aggregating:
+            continue
+
+        n = len(y)
+        pred = sigmoid_preds.get(well, {}) if isinstance(sigmoid_preds, dict) else {}
+        baseline = pred.get("baseline")
+        plateau = pred.get("plateau")
+        if baseline is None:
+            baseline = f.get("baseline_level")
+        if plateau is None:
+            plateau = f.get("plateau_level")
+        if baseline is None or plateau is None:
+            b_fb, p_fb = estimate_baseline_plateau_from_signal(time_sec, y)
+            baseline = b_fb if baseline is None else baseline
+            plateau = p_fb if plateau is None else plateau
+
+        if merged_normalized:
+            baseline = 0.0
+            amp = 1.0
+        else:
+            baseline = float(baseline)
+            plateau = float(plateau)
+            amp = float(plateau - baseline)
+            if not np.isfinite(amp) or abs(amp) < 1e-9:
+                amp = float(np.max(y) - baseline)
+            if not np.isfinite(amp) or abs(amp) < 1e-9:
+                continue
+        cond = float(cond_map.get(well, 1.0))
+        datasets.append(
+            {
+                "well": well,
+                "x": x,
+                "y": y,
+                "baseline": baseline,
+                "amp": amp,
+                "cond": cond,
+                "N": len(y),
+            }
+        )
+
+    if not datasets:
+        raise ValueError("Inga giltiga kurvor för global fitting.")
+
+    def objective(lp):
+        loss = 0.0
+        for d in datasets:
+            y_norm_pred = _global_fit_model_norm(d["x"], lp, d["cond"])
+            y_pred = d["baseline"] + d["amp"] * y_norm_pred
+            r = d["y"] - y_pred
+            loss += float(np.sum(r * r)) / float(max(1, d["N"]))
+        return float(loss)
+
+    guess_nc = 2.0
+    guess_n2 = 2.0
+    if smart_init_enabled:
+        log_conds = []
+        log_halftimes = []
+        for d in datasets:
+            cond = float(d.get("cond", 0.0))
+            t_h = well_halftime.get(d["well"]) if isinstance(well_halftime, dict) else None
+            if cond > 0 and t_h is not None and float(t_h) > 0:
+                log_conds.append(float(np.log(cond)))
+                log_halftimes.append(float(np.log(float(t_h))))
+        if len(log_conds) >= 2:
+            try:
+                gamma = float(np.polyfit(np.array(log_conds), np.array(log_halftimes), 1)[0])
+                if np.isfinite(gamma) and gamma < 0.0:
+                    guess_n2 = float(np.clip(-2.0 * gamma - 1.0, 0.5, 5.0))
+            except Exception:
+                pass
+
+    cond_vals = [float(d.get("cond", 0.0)) for d in datasets if float(d.get("cond", 0.0)) > 0.0]
+    median_cond = float(np.median(cond_vals)) if cond_vals else 1.0
+    guess_log_km = float(guess_n2 * np.log(max(1e-12, median_cond)))
+
+    bounds = [(-30.0, 10.0), (-30.0, 10.0), (0.1, 6.0), (0.1, 6.0), (-10.0, 25.0)]
+    rng = np.random.default_rng(42)
+    starts = [np.array([np.log(1e-6), np.log(1e-4), guess_nc, guess_n2, guess_log_km], dtype=float)]
+    for _ in range(max(1, int(n_restarts)) - 1):
+        starts.append(
+            np.array(
+                [
+                    np.log(10 ** rng.uniform(-9.0, -1.0)),
+                    np.log(10 ** rng.uniform(-8.0, 0.0)),
+                    rng.uniform(0.5, 4.5),
+                    rng.uniform(0.5, 4.5),
+                    rng.uniform(0.0, 15.0),
+                ],
+                dtype=float,
+            )
+        )
+
+    best = None
+    best_loss = np.inf
+    for x0 in starts:
+        try:
+            res = minimize(
+                objective,
+                x0,
+                method="L-BFGS-B",
+                bounds=bounds,
+                options={"maxiter": 1500, "ftol": 1e-12},
+            )
+        except Exception:
+            continue
+        if not np.isfinite(res.fun):
+            continue
+        if res.fun < best_loss:
+            best = res
+            best_loss = float(res.fun)
+
+    if best is None:
+        raise ValueError("Global fitting kunde inte konvergera.")
+
+    best_lp = np.array(best.x, dtype=float)
+    best_params = {
+        "log_kn_plus": float(best_lp[0]),
+        "log_k2_plus": float(best_lp[1]),
+        "kn_plus": float(np.exp(best_lp[0])),
+        "k2_plus": float(np.exp(best_lp[1])),
+        "nc": float(best_lp[2]),
+        "n2": float(best_lp[3]),
+        "log_km_sat": float(best_lp[4]),
+        "km_sat": float(np.exp(best_lp[4])),
+    }
+
+    model_predictions = {}
+    residuals = {}
+    raw_data = {}
+    weighted_mse_sum = 0.0
+    for d in datasets:
+        y_norm_pred = _global_fit_model_norm(d["x"], best_lp, d["cond"])
+        y_pred = d["baseline"] + d["amp"] * y_norm_pred
+        r = d["y"] - y_pred
+        model_predictions[d["well"]] = [float(v) for v in y_pred]
+        residuals[d["well"]] = [float(v) for v in r]
+        raw_data[d["well"]] = [float(v) for v in d["y"]]
+        weighted_mse_sum += float(np.sum(r * r)) / float(max(1, d["N"]))
+
+    fit_error = float(np.sqrt(weighted_mse_sum / float(max(1, len(datasets)))))
+    return {
+        "success": True,
+        "x": [float(v) for v in x],
+        "best_params": best_params,
+        "model_predictions": model_predictions,
+        "residuals": residuals,
+        "raw_data": raw_data,
+        "fit_error": fit_error,
+        "loss": float(best_loss),
+        "wells": [d["well"] for d in datasets],
+        "custom_titles": custom_titles or {},
+        "smart_init_enabled": bool(smart_init_enabled),
+    }
+
+
+def generate_global_fit_plot_image(global_fit_result, selected_wells, time_unit="hours", show_residuals=False):
+    x = np.array(global_fit_result.get("x", []), dtype=float)
+    if len(x) == 0:
+        raise ValueError("Global fit saknar x-axel.")
+    raw = global_fit_result.get("raw_data", {})
+    pred = global_fit_result.get("model_predictions", {})
+    resid = global_fit_result.get("residuals", {})
+    wells = [w for w in selected_wells if w in raw and w in pred]
+    if not wells:
+        raise ValueError("Global fit saknar giltiga well-kurvor.")
+
+    palette = [
+        "#2563EB", "#DC2626", "#16A34A", "#D97706", "#7C3AED",
+        "#0891B2", "#BE123C", "#4F46E5", "#0F766E", "#EA580C",
+    ]
+
+    if show_residuals:
+        fig, (ax, ax_r) = plt.subplots(
+            2, 1, figsize=(9, 6.5), sharex=True, gridspec_kw={"height_ratios": [3.2, 1.4]}
+        )
+    else:
+        fig, ax = plt.subplots(figsize=(9, 5.4))
+        ax_r = None
+
+    for i, well in enumerate(wells):
+        color = palette[i % len(palette)]
+        y = np.array(raw[well], dtype=float)
+        yhat = np.array(pred[well], dtype=float)
+        ax.scatter(x, y, s=9, color=color, alpha=0.35, label=(f"{well} data"))
+        ax.plot(x, yhat, color=color, linewidth=2.0, label=(f"{well} fit"))
+        if ax_r is not None:
+            rr = np.array(resid.get(well, []), dtype=float)
+            if len(rr) == len(x):
+                ax_r.plot(x, rr, color=color, linewidth=1.2, alpha=0.9, label=well)
+
+    bp = global_fit_result.get("best_params", {})
+    default_title = (
+        "Global fitting overlay\n"
+        f"kn_plus={bp.get('kn_plus', np.nan):.3g}, k2_plus={bp.get('k2_plus', np.nan):.3g}, "
+        f"nc={bp.get('nc', np.nan):.3g}, n2={bp.get('n2', np.nan):.3g}, "
+        f"km_sat={bp.get('km_sat', np.nan):.3g}, "
+        f"RMSE={global_fit_result.get('fit_error', np.nan):.3g}"
+    )
+    default_x = f"Time ({unit_suffix(time_unit)})"
+    default_y = "Fluorescence (a.u.)"
+    x_label, y_label, title_label = resolve_plot_titles(
+        global_fit_result.get("custom_titles", {}),
+        default_x,
+        default_y,
+        default_title,
+    )
+    ax.set_title(title_label)
+    ax.set_ylabel(y_label)
+    ax.grid(True, linestyle="--", linewidth=0.5)
+    ax.legend(loc="upper left", fontsize=8, ncol=2)
+
+    if ax_r is not None:
+        ax_r.axhline(0.0, color="#6B7280", linewidth=1.0, linestyle="--")
+        ax_r.set_ylabel("Residual")
+        ax_r.set_xlabel(x_label)
+        ax_r.grid(True, linestyle="--", linewidth=0.5, alpha=0.8)
+    else:
+        ax.set_xlabel(x_label)
+
+    fig.tight_layout()
+    return _store_plot_figure(fig, "global_fit")
 
 
 def sanitize_groups(groups, selected_wells):
@@ -1157,6 +1588,123 @@ def sanitize_groups(groups, selected_wells):
         if clean_wells:
             sanitized[name] = clean_wells
     return sanitized
+
+
+def average_group_signals(
+    time_sec,
+    wells_dict,
+    groups,
+    well_halftime=None,
+    only_aggregating=True,
+    merge_method="inverse",
+    sigmoid_preds=None,
+):
+    if not isinstance(groups, dict):
+        return {}
+    n_t = len(time_sec)
+    out = {}
+    well_halftime = well_halftime or {}
+    method = (merge_method or "inverse").strip().lower()
+    if method not in {"standard", "inverse"}:
+        method = "inverse"
+    sigmoid_preds = sigmoid_preds or {}
+    t_axis = np.array(time_sec, dtype=float)
+
+    for group_name, group_wells in groups.items():
+        if not isinstance(group_wells, list):
+            continue
+        norm_rows = []
+        for well in group_wells:
+            y = wells_dict.get(well)
+            if y is None:
+                continue
+            if only_aggregating and well_halftime.get(well) is None:
+                continue
+            arr = np.array(y, dtype=float)
+            if len(arr) != n_t:
+                continue
+
+            # Normalize each well with its own ML baseline/plateau when available.
+            pred = sigmoid_preds.get(well, {}) if isinstance(sigmoid_preds, dict) else {}
+            baseline = pred.get("baseline")
+            plateau = pred.get("plateau")
+            if baseline is None or plateau is None:
+                n0 = max(1, int(round(0.05 * len(arr))))
+                fallback_b = float(np.median(arr[:n0]))
+                fallback_p = float(np.median(arr[-n0:]))
+                baseline = fallback_b if baseline is None else baseline
+                plateau = fallback_p if plateau is None else plateau
+
+            baseline = float(baseline)
+            plateau = float(plateau)
+            amp = float(plateau - baseline)
+            if not np.isfinite(amp) or abs(amp) < 1e-12:
+                amp = float(np.max(arr) - baseline)
+            if not np.isfinite(amp) or abs(amp) < 1e-12:
+                continue
+
+            y_norm = (arr - baseline) / amp
+            y_norm = np.clip(y_norm, 0.0, 1.0)
+            norm_rows.append(y_norm)
+
+        if not norm_rows:
+            continue
+
+        mat = np.vstack(norm_rows)
+        standard_mean = np.mean(mat, axis=0)
+        if method == "standard":
+            out[group_name] = standard_mean.tolist()
+            continue
+
+        # Inverse averaging (time-aligned) with safe fallback.
+        try:
+            y_common = np.linspace(0.0, 1.0, 500)
+            t_interp_list = []
+
+            for y_norm in norm_rows:
+                y_mono = np.maximum.accumulate(y_norm)
+                y_unique, uniq_idx = np.unique(y_mono, return_index=True)
+                if len(y_unique) < 2:
+                    continue
+                t_unique = t_axis[uniq_idx]
+                f_inv = interp1d(
+                    y_unique,
+                    t_unique,
+                    bounds_error=False,
+                    fill_value=(float(t_axis[0]), float(t_axis[-1])),
+                )
+                t_interp = np.array(f_inv(y_common), dtype=float)
+                if len(t_interp) != len(y_common):
+                    continue
+                t_interp_list.append(t_interp)
+
+            if not t_interp_list:
+                out[group_name] = standard_mean.tolist()
+                continue
+
+            t_mean = np.mean(np.vstack(t_interp_list), axis=0)
+            t_mean = np.maximum.accumulate(np.array(t_mean, dtype=float))
+            if np.any(~np.isfinite(t_mean)):
+                out[group_name] = standard_mean.tolist()
+                continue
+
+            # np.interp expects ascending x; enforce unique ascending t_mean.
+            t_mono, t_idx = np.unique(t_mean, return_index=True)
+            y_for_t = y_common[t_idx]
+            if len(t_mono) < 2:
+                out[group_name] = standard_mean.tolist()
+                continue
+
+            y_mean_norm = np.interp(t_axis, t_mono, y_for_t, left=float(y_for_t[0]), right=float(y_for_t[-1]))
+            y_final = np.clip(y_mean_norm, 0.0, 1.0)
+            if np.any(~np.isfinite(y_final)) or len(y_final) != n_t:
+                out[group_name] = standard_mean.tolist()
+                continue
+
+            out[group_name] = y_final.tolist()
+        except Exception:
+            out[group_name] = standard_mean.tolist()
+    return out
 
 
 def sanitize_thalf_assignments(assignments, allowed_wells):
@@ -1288,6 +1836,16 @@ def build_thalf_plot_image(session_data, selected_wells, assignments, scale="log
             label=group_name,
         )
 
+    default_title = "t½ vs log(conc)" if scale == "log" else "t½ vs conc"
+    default_x = "Antibody concentration (µM)"
+    default_y = f"Half-time ({unit_suffix(session_data.get('time_unit', 'hours'))})"
+    x_label, y_label, title_label = resolve_plot_titles(
+        session_data.get("custom_titles", {}),
+        default_x,
+        default_y,
+        default_title,
+    )
+
     if scale == "log":
         ax.set_xscale("log")
         unique_concs = sorted(df[df["conc_uM"] > 0]["conc_uM"].unique())
@@ -1297,14 +1855,14 @@ def build_thalf_plot_image(session_data, selected_wells, assignments, scale="log
             ax.xaxis.set_minor_locator(
                 ticker.LogLocator(base=10.0, subs=np.arange(1, 10) * 0.1)
             )
-        ax.set_title("t\u00bd vs log(conc)")
+        ax.set_title(title_label)
         ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     else:
-        ax.set_title("t\u00bd vs conc")
+        ax.set_title(title_label)
         ax.grid(True, linestyle="--", linewidth=0.5)
 
-    ax.set_xlabel("Antibody concentration (\u00b5M)")
-    ax.set_ylabel("Half-time (h)")
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
     ax.legend(loc="upper left", fontsize=8, title="Group")
     fig.tight_layout()
 
@@ -1320,6 +1878,7 @@ def generate_plot_image(
     x_to=None,
     groups=None,
     time_unit="hours",
+    custom_titles=None,
 ):
     time_h = time_axis_from_seconds(time_sec, time_unit)
 
@@ -1406,13 +1965,17 @@ def generate_plot_image(
         else:
             ax.plot(time_h, y, linewidth=1.6, alpha=0.9, color=color, label=well if not has_groups else label)
 
-    ax.set_xlabel(f"Time ({unit_suffix(time_unit)})")
+    default_x = f"Time ({unit_suffix(time_unit)})"
     if normalized:
-        ax.set_ylabel("Normalized fluorescence (0-1)")
-        ax.set_title("Normalized aggregation curve")
+        default_y = "Normalized fluorescence (0-1)"
+        default_title = "Normalized aggregation curve"
     else:
-        ax.set_ylabel("Fluorescence (a.u.)")
-        ax.set_title("Aggregation curve")
+        default_y = "Fluorescence (a.u.)"
+        default_title = "Aggregation curve"
+    x_label, y_label, title_label = resolve_plot_titles(custom_titles, default_x, default_y, default_title)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.set_title(title_label)
 
     ax.grid(True, linestyle="--", linewidth=0.5)
     ax.legend(loc="upper left", fontsize=8)
@@ -1434,6 +1997,7 @@ def generate_single_well_plot(
     plateau_pred=None,
     show_baseline_dot=False,
     show_plateau_dot=False,
+    custom_titles=None,
 ):
     time_h = time_axis_from_seconds(time_sec, time_unit)
     y = np.array(signal, dtype=float)
@@ -1532,9 +2096,15 @@ def generate_single_well_plot(
                 label="Submitted t1/2",
             )
 
-    ax.set_xlabel(f"Time ({unit_suffix(time_unit)})")
-    ax.set_ylabel("Fluorescence (a.u.)")
-    ax.set_title(f"Aggregation curve - {well}")
+    x_label, y_label, title_label = resolve_plot_titles(
+        custom_titles,
+        f"Time ({unit_suffix(time_unit)})",
+        "Fluorescence (a.u.)",
+        f"Aggregation curve - {well}",
+    )
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.set_title(title_label)
     ax.grid(True, linestyle="--", linewidth=0.5)
     ax.legend(loc="upper left", fontsize=9)
     # Keep axis box stable so client-side overlay mapping stays aligned.
@@ -1620,6 +2190,7 @@ def generate_sigmoid_control_plot(
     submitted_baseline_x=None,
     submitted_plateau_x=None,
     time_unit="hours",
+    custom_titles=None,
 ):
     time_h = time_axis_from_seconds(time_sec, time_unit)
     y = np.array(signal, dtype=float)
@@ -1693,9 +2264,15 @@ def generate_sigmoid_control_plot(
             label="Submitted plateau",
         )
 
-    ax.set_xlabel(f"Time ({unit_suffix(time_unit)})")
-    ax.set_ylabel("Fluorescence (a.u.)")
-    ax.set_title(f"Sigmoidal fitting control - {well}")
+    x_label, y_label, title_label = resolve_plot_titles(
+        custom_titles,
+        f"Time ({unit_suffix(time_unit)})",
+        "Fluorescence (a.u.)",
+        f"Sigmoidal fitting control - {well}",
+    )
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.set_title(title_label)
     ax.grid(True, linestyle="--", linewidth=0.5)
     ax.legend(loc="upper left", fontsize=9)
     fig.subplots_adjust(left=0.11, right=0.98, bottom=0.12, top=0.88)
@@ -1943,6 +2520,7 @@ def control_sigmoid_start():
         "preds": preds,
         "submitted_points": {},
         "status_message": "",
+        "custom_titles": {"x": "", "y": "", "title": ""},
     }
     return redirect(url_for("control_sigmoid_view", sigmoid_id=sigmoid_id, idx=0))
 
@@ -1973,6 +2551,7 @@ def control_sigmoid_view(sigmoid_id):
     submitted_baseline_x = submitted.get("baseline_x")
     submitted_plateau_x = submitted.get("plateau_x")
 
+    custom_titles = data.get("custom_titles", {"x": "", "y": "", "title": ""})
     plot_id, plot_meta, point_info = generate_sigmoid_control_plot(
         data["time_sec"],
         well,
@@ -1982,6 +2561,7 @@ def control_sigmoid_view(sigmoid_id):
         submitted_baseline_x=submitted_baseline_x,
         submitted_plateau_x=submitted_plateau_x,
         time_unit=time_unit,
+        custom_titles=custom_titles,
     )
     baseline_point = (point_info or {}).get("baseline_point")
     plateau_point = (point_info or {}).get("plateau_point")
@@ -2029,6 +2609,7 @@ def control_sigmoid_view(sigmoid_id):
         has_next=idx < (len(data["well_order"]) - 1),
         prev_idx=(idx - 1),
         next_idx=(idx + 1),
+        custom_titles=custom_titles,
     )
 
 
@@ -2078,6 +2659,7 @@ def control_sigmoid_preview(sigmoid_id):
         submitted_baseline_x=baseline_x,
         submitted_plateau_x=plateau_x,
         time_unit=time_unit,
+        custom_titles=data.get("custom_titles", {"x": "", "y": "", "title": ""}),
     )
     return redirect(url_for("plot_image", plot_id=plot_id))
 
@@ -2099,6 +2681,7 @@ def control_sigmoid_update(sigmoid_id):
 
     well = data["well_order"][idx]
     action = (request.form.get("action", "") or "").strip()
+    data["custom_titles"] = parse_custom_plot_titles(request.form)
     baseline_x_raw = (request.form.get("submitted_baseline_x", "") or "").strip()
     plateau_x_raw = (request.form.get("submitted_plateau_x", "") or "").strip()
 
@@ -2195,6 +2778,8 @@ def control_sigmoid_update(sigmoid_id):
             f"Saved good {point_type} prediction for training: {well} "
             f"(y={round(float(pred_level), 1)} a.u.)"
         )
+    elif action == "update_titles":
+        data["status_message"] = "Updated plot titles."
 
     return redirect(url_for("control_sigmoid_view", sigmoid_id=sigmoid_id, idx=idx))
 
@@ -2223,6 +2808,7 @@ def analyze():
         "time_sec": time_sec,
         "wells": wells,
         "time_unit": time_unit,
+        "custom_titles": {"x": "", "y": "", "title": ""},
     }
 
     return render_template(
@@ -2234,7 +2820,8 @@ def analyze():
         time_unit=time_unit,
         time_unit_suffix=unit_suffix(time_unit),
         thalf_session_id=thalf_session_id,
-        thalf_groups=remembered_thalf_groups
+        thalf_groups=remembered_thalf_groups,
+        custom_titles={"x": "", "y": "", "title": ""},
     )
 
 
@@ -2303,6 +2890,7 @@ def control_halftimes_start():
         "well_halftime": source["well_halftime"],
         "custom_halftimes": {},
         "status_message": "",
+        "custom_titles": {"x": "", "y": "", "title": ""},
     }
 
     return redirect(url_for("control_halftimes_view", control_id=control_id, idx=0))
@@ -2345,6 +2933,7 @@ def control_halftimes_view(control_id):
         submitted_t_half=submitted_t_half,
         include_submitted_marker=True,
         time_unit=time_unit,
+        custom_titles=data.get("custom_titles", {"x": "", "y": "", "title": ""}),
     )
 
     return render_template(
@@ -2374,6 +2963,7 @@ def control_halftimes_view(control_id):
         prev_idx=(idx - 1),
         next_idx=(idx + 1),
         status_message=data.get("status_message", ""),
+        custom_titles=data.get("custom_titles", {"x": "", "y": "", "title": ""}),
     )
 
 
@@ -2416,6 +3006,7 @@ def control_halftimes_preview(control_id):
         submitted_t_half=submitted_t_half,
         include_submitted_marker=True,
         time_unit=time_unit,
+        custom_titles=data.get("custom_titles", {"x": "", "y": "", "title": ""}),
     )
     return redirect(url_for("plot_image", plot_id=plot_id))
 
@@ -2438,6 +3029,7 @@ def control_halftimes_update(control_id):
 
     well = data["well_order"][idx]
     action = request.form.get("action", "display")
+    data["custom_titles"] = parse_custom_plot_titles(request.form)
     input_value = (request.form.get("custom_halftime", "") or "").strip()
     y_input_value = (request.form.get("custom_y_value", "") or "").strip()
 
@@ -2569,6 +3161,9 @@ def control_halftimes_update(control_id):
         else:
             data["status_message"] = "Saved good prediction: {well} (does not aggregate)".format(well=well)
         return redirect(url_for("control_halftimes_view", control_id=control_id, idx=next_idx))
+    elif action == "update_titles":
+        data["status_message"] = "Updated plot titles."
+        return redirect(url_for("control_halftimes_view", control_id=control_id, idx=idx))
     else:
         if custom_value_hours is not None:
             data["status_message"] = f"Displayed on curve: {well} ({round(hours_to_unit(custom_value_hours, time_unit), 2)} {unit_sfx})"
@@ -2619,6 +3214,7 @@ def plot_select():
         "groups": remembered_groups,
         "invalid_wells": invalid_wells,
         "time_unit": time_unit,
+        "custom_titles": {"x": "", "y": "", "title": ""},
     }
 
     return render_template(
@@ -2632,7 +3228,8 @@ def plot_select():
         wells=sorted(wells.keys()),
         selected_wells=[],
         groups=remembered_groups,
-        invalid_wells=invalid_wells
+        invalid_wells=invalid_wells,
+        custom_titles={"x": "", "y": "", "title": ""},
     )
 
 
@@ -2644,6 +3241,16 @@ def aggregation_analysis_start():
         time_unit = normalize_time_unit(upload_set.get("time_unit", session.get("current_time_unit", "hours")))
     except Exception as exc:
         return render_template("result.html", error=f"Kunde inte starta aggregation analysis: {exc}")
+
+    # Never hard-crash the page because of stale/incompatible models.
+    try:
+        well_halftime = predict_well_halftimes(time_sec, wells)[1]
+    except Exception:
+        well_halftime = {w: None for w in wells.keys()}
+    try:
+        sigmoid_preds = predict_well_sigmoid_points(time_sec, wells)
+    except Exception:
+        sigmoid_preds = {w: {"baseline": None, "plateau": None} for w in wells.keys()}
 
     groups = get_shared_groups(upload_set, sorted(wells.keys()))
     # Keep insertion order from saved group object (chronological create order).
@@ -2661,11 +3268,12 @@ def aggregation_analysis_start():
         "time_unit": time_unit,
         "time_sec": time_sec,
         "wells": wells,
-        "well_halftime": predict_well_halftimes(time_sec, wells)[1],
-        "sigmoid_preds": predict_well_sigmoid_points(time_sec, wells),
+        "well_halftime": well_halftime,
+        "sigmoid_preds": sigmoid_preds,
         "groups": groups,
         "group_order": group_order,
         "well_order": well_order,
+        "custom_titles": {"x": "", "y": "", "title": ""},
     }
     return redirect(url_for("aggregation_analysis_view", analysis_id=session_id, mode=default_mode))
 
@@ -2690,24 +3298,64 @@ def aggregation_analysis_view(analysis_id):
     if mode == "wells" and not well_order:
         mode = "groups"
 
-    options = group_order if mode == "groups" else well_order
+    options = (["__all_groups__", "__selected_groups__"] + list(group_order)) if mode == "groups" else well_order
     if not options:
         return render_template("result.html", error="No groups or wells available for aggregation analysis.")
 
     show_halftime = as_bool(request.args.get("show_halftime", "0"))
     show_baseline = as_bool(request.args.get("show_baseline", "0"))
     show_plateau = as_bool(request.args.get("show_plateau", "0"))
+    normalize_plot = as_bool(request.args.get("normalize_plot", "0"))
+    global_fit_enabled = as_bool(request.args.get("global_fit", "0"))
+    smart_init_enabled = as_bool(request.args.get("smart_init", "0"))
+    show_residuals = as_bool(request.args.get("show_residuals", "0"))
+    merge_group_curves = as_bool(request.args.get("merge_group_curves", "0"))
+    merge_method = (request.args.get("merge_method", "inverse") or "inverse").strip().lower()
+    if merge_method not in {"standard", "inverse"}:
+        merge_method = "inverse"
+    custom_titles = parse_custom_plot_titles(request.args)
+    if not any(custom_titles.values()):
+        custom_titles = data.get("custom_titles", {"x": "", "y": "", "title": ""})
+    data["custom_titles"] = custom_titles
+    try:
+        global_restarts = int(request.args.get("global_restarts", "12"))
+    except ValueError:
+        global_restarts = 12
+    global_restarts = max(1, min(40, global_restarts))
     select_representative = as_bool(request.args.get("select_representative", "0"))
+    rep_merge_only = as_bool(request.args.get("rep_merge_only", "0"))
     try:
         rep_count = int(request.args.get("rep_count", "1"))
     except ValueError:
         rep_count = 1
     rep_count = max(1, rep_count)
-    rep_groups = request.args.getlist("rep_groups")
+    rep_groups_req = request.args.getlist("rep_groups")
+    rep_groups_all = "__all_groups__" in rep_groups_req
+    rep_groups = [g for g in rep_groups_req if g in group_order]
+    if rep_groups_all or not rep_groups_req:
+        rep_groups = list(group_order)
     if not rep_groups:
         rep_groups = list(group_order)
+    rep_groups_query = (["__all_groups__"] if rep_groups_all else rep_groups)
+    plot_groups = request.args.getlist("plot_groups")
+    item_groups_selected = request.args.getlist("item_groups")
+    if not plot_groups:
+        plot_groups = list(group_order)
 
     item_key = (request.args.get("item", "") or "").strip()
+    if mode == "groups" and item_groups_selected:
+        if "__all_groups__" in item_groups_selected:
+            item_key = "__all_groups__"
+            plot_groups = list(group_order)
+        else:
+            picked = [g for g in item_groups_selected if g in group_order]
+            if len(picked) > 1:
+                item_key = "__selected_groups__"
+                plot_groups = picked
+            elif len(picked) == 1:
+                item_key = picked[0]
+                plot_groups = picked
+
     if item_key not in options:
         try:
             idx = int(request.args.get("idx", "0"))
@@ -2720,65 +3368,238 @@ def aggregation_analysis_view(analysis_id):
     prev_item = options[idx - 1] if idx > 0 else item_key
     next_item = options[idx + 1] if idx < (len(options) - 1) else item_key
 
+    displayed_series_dict = data["wells"]
+    displayed_ids = []
+    subtitle = ""
+    shown_wells = []
+    plot_header_title = ""
+    plot_header_meta = ""
+    plot_header_label = ""
+    merged_curves_normalized = False
     if mode == "groups":
         group_name = item_key
-        group_wells = sorted(data["groups"].get(group_name, []))
-        if select_representative and group_name in set(rep_groups):
-            valid = []
-            for w in group_wells:
-                t = data.get("well_halftime", {}).get(w)
-                if t is None:
-                    continue
-                valid.append((w, float(t)))
-            if valid:
-                median_t = float(np.median([t for _, t in valid]))
-                valid.sort(key=lambda wt: abs(wt[1] - median_t))
-                group_wells = [w for w, _ in valid[:min(rep_count, len(valid))]]
-        if not group_wells:
-            return render_template("result.html", error=f"Group '{group_name}' has no wells.")
-        plot_id = generate_plot_image(
-            data["time_sec"],
-            data["wells"],
-            group_wells,
-            normalized=False,
-            groups={group_name: group_wells},
-            time_unit=data.get("time_unit", "hours"),
-        )
-        subtitle = f"Group {idx + 1} / {len(options)}: {group_name}"
-        shown_wells = group_wells
+        is_all_groups = group_name == "__all_groups__"
+        is_selected_groups = group_name == "__selected_groups__"
+        if is_all_groups:
+            groups_to_show = {g: sorted(data["groups"].get(g, [])) for g in group_order}
+        elif is_selected_groups:
+            selected_names = [g for g in plot_groups if g in group_order]
+            if not selected_names:
+                selected_names = list(group_order)
+            groups_to_show = {g: sorted(data["groups"].get(g, [])) for g in selected_names}
+        else:
+            group_wells = sorted(data["groups"].get(group_name, []))
+            if select_representative and group_name in set(rep_groups):
+                valid = []
+                for w in group_wells:
+                    t = data.get("well_halftime", {}).get(w)
+                    if t is None:
+                        continue
+                    valid.append((w, float(t)))
+                if valid:
+                    median_t = float(np.median([t for _, t in valid]))
+                    valid.sort(key=lambda wt: abs(wt[1] - median_t))
+                    group_wells = [w for w, _ in valid[:min(rep_count, len(valid))]]
+            groups_to_show = {group_name: group_wells}
+
+        # All-groups mode always merges each group into one average curve.
+        do_merge = is_all_groups or is_selected_groups or merge_group_curves
+        if do_merge and select_representative and rep_merge_only:
+            rep_groups_set = set(rep_groups)
+            trimmed = {}
+            for gname, wells_in_group in groups_to_show.items():
+                curr = list(wells_in_group or [])
+                if gname in rep_groups_set:
+                    valid = []
+                    for w in curr:
+                        t = data.get("well_halftime", {}).get(w)
+                        if t is None:
+                            continue
+                        valid.append((w, float(t)))
+                    if valid:
+                        median_t = float(np.median([t for _, t in valid]))
+                        valid.sort(key=lambda wt: abs(wt[1] - median_t))
+                        curr = [w for w, _ in valid[:min(rep_count, len(valid))]]
+                trimmed[gname] = curr
+            groups_to_show = trimmed
+
+        if do_merge:
+            averaged = average_group_signals(
+                data["time_sec"],
+                data["wells"],
+                groups_to_show,
+                well_halftime=data.get("well_halftime", {}),
+                only_aggregating=True,
+                merge_method=merge_method,
+                sigmoid_preds=data.get("sigmoid_preds", {}),
+            )
+            if not averaged:
+                return render_template("result.html", error="Inga aggregerande kurvor kunde mergas för vald grupp(er).")
+            displayed_series_dict = averaged
+            displayed_ids = list(averaged.keys())
+            merged_curves_normalized = True
+            if is_all_groups:
+                subtitle = "All groups (merged average curves)"
+                shown_wells = displayed_ids
+            elif is_selected_groups:
+                subtitle = "Selected groups (merged average curves)"
+                shown_wells = displayed_ids
+            else:
+                subtitle = f"{group_name} (merged average)"
+                shown_wells = groups_to_show.get(group_name, [])
+        else:
+            group_wells = groups_to_show.get(group_name, [])
+            if not group_wells:
+                return render_template("result.html", error=f"Group '{group_name}' has no wells.")
+            displayed_series_dict = data["wells"]
+            displayed_ids = group_wells
+            subtitle = group_name
+            shown_wells = group_wells
+
+        try:
+            plot_id = generate_plot_image(
+                data["time_sec"],
+                displayed_series_dict,
+                displayed_ids,
+                normalized=(normalize_plot or merged_curves_normalized),
+                groups={} if do_merge else {group_name: displayed_ids},
+                time_unit=data.get("time_unit", "hours"),
+                custom_titles=custom_titles,
+            )
+        except Exception as exc:
+            return render_template("result.html", error=f"Kunde inte skapa aggregation analysis-plot: {exc}")
     else:
         well = item_key
         signal = data["wells"].get(well, [])
         t_half = data.get("well_halftime", {}).get(well)
         pred = data.get("sigmoid_preds", {}).get(well, {})
-        plot_id, _ = generate_single_well_plot(
-            data["time_sec"],
-            well,
-            signal,
-            t_half=t_half,
-            submitted_t_half=None,
-            include_submitted_marker=False,
-            time_unit=data.get("time_unit", "hours"),
-            show_halftime_dot=show_halftime,
-            baseline_pred=pred.get("baseline"),
-            plateau_pred=pred.get("plateau"),
-            show_baseline_dot=show_baseline,
-            show_plateau_dot=show_plateau,
-        )
+        try:
+            plot_id, _ = generate_single_well_plot(
+                data["time_sec"],
+                well,
+                signal,
+                t_half=t_half,
+                submitted_t_half=None,
+                include_submitted_marker=False,
+                time_unit=data.get("time_unit", "hours"),
+                show_halftime_dot=show_halftime,
+                baseline_pred=pred.get("baseline"),
+                plateau_pred=pred.get("plateau"),
+                show_baseline_dot=show_baseline,
+                show_plateau_dot=show_plateau,
+                custom_titles=custom_titles,
+            )
+        except Exception as exc:
+            return render_template("result.html", error=f"Kunde inte skapa aggregation analysis-plot: {exc}")
         subtitle = f"Well {idx + 1} / {len(options)}: {well}"
         shown_wells = [well]
+        displayed_series_dict = data["wells"]
+        displayed_ids = shown_wells
+
+    if mode == "groups":
+        if shown_wells:
+            plot_header_title = ", ".join(shown_wells)
+        else:
+            plot_header_title = subtitle
+        plot_header_meta = subtitle
+        plot_header_label = ""
+        shown_wells = []
+    else:
+        plot_header_title = subtitle
+        plot_header_meta = ""
+        plot_header_label = "Well"
+
+    # Build optional condition map from group names (concentration if present).
+    well_conditions = {}
+    for gname, wells_in_group in (data.get("groups", {}) or {}).items():
+        conc = parse_concentration_from_group_name(gname)
+        if conc is None:
+            continue
+        # For merged group curves, group name itself is the curve id.
+        well_conditions[gname] = float(conc)
+        for w in wells_in_group:
+            if w not in well_conditions:
+                well_conditions[w] = float(conc)
+
+    global_fit_result = None
+    global_fit_error = ""
+    if global_fit_enabled:
+        try:
+            fit_series = displayed_series_dict if (mode == "groups" and (item_key in {"__all_groups__", "__selected_groups__"} or merge_group_curves)) else data["wells"]
+            fit_ids = displayed_ids if (mode == "groups" and (item_key in {"__all_groups__", "__selected_groups__"} or merge_group_curves)) else shown_wells
+            global_fit_result = run_global_fit(
+                data["time_sec"],
+                fit_series,
+                fit_ids,
+                time_unit=data.get("time_unit", "hours"),
+                well_conditions=well_conditions,
+                n_restarts=global_restarts,
+                well_halftime=data.get("well_halftime", {}),
+                sigmoid_preds=data.get("sigmoid_preds", {}),
+                custom_titles=custom_titles,
+                smart_init_enabled=smart_init_enabled,
+                merged_normalized=bool(mode == "groups" and (item_key in {"__all_groups__", "__selected_groups__"} or merge_group_curves) and merged_curves_normalized),
+            )
+            # For download button, prefer global fit image when enabled.
+            plot_id = generate_global_fit_plot_image(
+                global_fit_result,
+                fit_ids,
+                time_unit=data.get("time_unit", "hours"),
+                show_residuals=show_residuals,
+            )
+        except Exception as exc:
+            global_fit_error = f"Global fitting failed: {exc}"
 
     interactive_payload = build_interactive_plot_payload(
         data["time_sec"],
-        data["wells"],
-        shown_wells,
+        displayed_series_dict,
+        displayed_ids,
         data.get("time_unit", "hours"),
         well_halftime=data.get("well_halftime", {}),
         sigmoid_preds=data.get("sigmoid_preds", {}),
         show_halftime=show_halftime,
         show_baseline=show_baseline,
         show_plateau=show_plateau,
+        normalized=(normalize_plot or merged_curves_normalized),
     )
+    if global_fit_result:
+        gf_preds = global_fit_result.get("model_predictions", {}) or {}
+        gf_res = global_fit_result.get("residuals", {}) or {}
+        if normalize_plot:
+            norm_preds = {}
+            norm_res = {}
+            for wid in displayed_ids:
+                y_raw = np.array(displayed_series_dict.get(wid, []), dtype=float)
+                pred_raw = np.array(gf_preds.get(wid, []), dtype=float)
+                res_raw = np.array(gf_res.get(wid, []), dtype=float)
+                if len(y_raw) == 0:
+                    continue
+                y_min = float(np.min(y_raw))
+                y_max = float(np.max(y_raw))
+                y_scale = (y_max - y_min) if (y_max - y_min) != 0 else 1.0
+                if len(pred_raw) > 0:
+                    norm_preds[wid] = [float((v - y_min) / y_scale) for v in pred_raw]
+                if len(res_raw) > 0:
+                    norm_res[wid] = [float(v / y_scale) for v in res_raw]
+            gf_preds = norm_preds
+            gf_res = norm_res
+
+        interactive_payload["global_fit"] = {
+            "enabled": True,
+            "show_residuals": bool(show_residuals),
+            "fit_error": float(global_fit_result.get("fit_error", np.nan)),
+            "best_params": global_fit_result.get("best_params", {}),
+            "model_predictions": gf_preds,
+            "residuals": gf_res,
+        }
+    else:
+        interactive_payload["global_fit"] = {
+            "enabled": False,
+            "show_residuals": bool(show_residuals),
+            "best_params": {},
+            "model_predictions": {},
+            "residuals": {},
+        }
 
     max_group_size = 1
     if group_order:
@@ -2794,15 +3615,32 @@ def aggregation_analysis_view(analysis_id):
         show_halftime=show_halftime,
         show_baseline=show_baseline,
         show_plateau=show_plateau,
+        normalize_plot=normalize_plot,
+        global_fit=global_fit_enabled,
+        show_residuals=show_residuals,
+        smart_init=smart_init_enabled,
+        merge_group_curves=merge_group_curves,
+        merge_method=merge_method,
+        global_restarts=global_restarts,
+        global_fit_result=global_fit_result,
+        global_fit_error=global_fit_error,
         select_representative=select_representative,
+        rep_merge_only=rep_merge_only,
         rep_count=rep_count,
         rep_groups=rep_groups,
+        rep_groups_all=rep_groups_all,
+        rep_groups_query=rep_groups_query,
+        plot_groups=plot_groups,
+        item_groups_selected=item_groups_selected,
         rep_max=rep_max,
         group_options=group_order,
         well_options=well_order,
         idx=idx,
         total_items=len(options),
         subtitle=subtitle,
+        plot_header_title=plot_header_title,
+        plot_header_meta=plot_header_meta,
+        plot_header_label=plot_header_label,
         group_wells=shown_wells,
         interactive_payload=interactive_payload,
         n_files=data["n_files"],
@@ -2810,6 +3648,7 @@ def aggregation_analysis_view(analysis_id):
         time_unit_suffix=unit_suffix(data.get("time_unit", "hours")),
         image_id=plot_id,
         image_url=url_for("plot_image", plot_id=plot_id),
+        custom_titles=custom_titles,
         has_prev=idx > 0,
         has_next=idx < (len(options) - 1),
         prev_item=prev_item,
@@ -2822,6 +3661,7 @@ def plot_render():
     dataset_id = request.form.get("dataset_id", "").strip()
     action = (request.form.get("action", "update") or "update").strip().lower()
     selected_wells = request.form.getlist("wells")
+    custom_titles = parse_custom_plot_titles(request.form)
 
     data = _plot_datasets.get(dataset_id)
     if not data:
@@ -2840,8 +3680,6 @@ def plot_render():
     groups_for_selection = sanitize_groups(parsed_groups, all_wells_sorted)
 
     # "Representative curves" mode:
-    # remove most outstanding halftimes first by selecting wells closest to
-    # each group's halftime median.
     info_message = ""
     if action == "select_representative":
         rep_count_raw = (request.form.get("rep_count", "1") or "1").strip()
@@ -2913,6 +3751,7 @@ def plot_render():
             groups=groups_for_selection if isinstance(groups_for_selection, dict) else {},
             invalid_wells=data.get("invalid_wells", []),
             info_message=info_message,
+            custom_titles=custom_titles,
             error="Välj minst en well att plotta eller tilldela wells till en grupp."
         )
 
@@ -2933,6 +3772,7 @@ def plot_render():
             groups=groups_for_selection if isinstance(groups_for_selection, dict) else {},
             invalid_wells=data.get("invalid_wells", []),
             info_message=info_message,
+            custom_titles=custom_titles,
             error=f"from x och to x måste vara numeriska värden i {unit_suffix(data.get('time_unit', 'hours'))}."
         )
 
@@ -2953,6 +3793,7 @@ def plot_render():
             x_to=x_to,
             groups=groups_for_plot,
             time_unit=data.get("time_unit", "hours"),
+            custom_titles=custom_titles,
         )
     except Exception as exc:
         return render_template(
@@ -2968,6 +3809,7 @@ def plot_render():
             groups=groups,
             invalid_wells=data.get("invalid_wells", []),
             info_message=info_message,
+            custom_titles=custom_titles,
             error=f"Kunde inte skapa plot: {exc}"
         )
 
@@ -2975,6 +3817,7 @@ def plot_render():
     data["x_from"] = x_from
     data["x_to"] = x_to
     data["groups"] = groups
+    data["custom_titles"] = custom_titles
     upload_set_id = data.get("upload_set_id")
     if upload_set_id and upload_set_id in _stored_upload_sets:
         _stored_upload_sets[upload_set_id]["shared_groups"] = groups
@@ -2999,7 +3842,8 @@ def plot_render():
         x_to=x_to,
         groups=groups,
         invalid_wells=data.get("invalid_wells", []),
-        info_message=info_message
+        info_message=info_message,
+        custom_titles=custom_titles,
     )
 
 
@@ -3015,6 +3859,7 @@ def plot_thalf():
         return render_template("result.html", error="t\u00bd-session saknas. K\u00f6r Calculate t\u00bd igen.")
 
     groups_json = request.form.get("thalf_groups_json", "").strip()
+    custom_titles = parse_custom_plot_titles(request.form)
     groups = {}
     if groups_json:
         try:
@@ -3039,6 +3884,7 @@ def plot_thalf():
             ],
             thalf_session_id=session_id,
             thalf_groups=groups,
+            custom_titles=custom_titles,
         )
 
     assignments = {}
@@ -3066,6 +3912,7 @@ def plot_thalf():
             ],
             thalf_session_id=session_id,
             thalf_groups=groups,
+            custom_titles=custom_titles,
         )
 
     upload_set_id = session_data.get("upload_set_id")
@@ -3074,6 +3921,7 @@ def plot_thalf():
         _stored_upload_sets[upload_set_id]["curve_groups"] = groups
         _stored_upload_sets[upload_set_id]["thalf_groups"] = groups
     persist_groups_for_run(upload_set_id, groups)
+    session_data["custom_titles"] = custom_titles
 
     try:
         plot_id = build_thalf_plot_image(session_data, selected_wells, assignments, scale=scale)
@@ -3092,6 +3940,7 @@ def plot_thalf():
             ],
             thalf_session_id=session_id,
             thalf_groups=groups,
+            custom_titles=custom_titles,
         )
 
     return render_template(
@@ -3101,6 +3950,9 @@ def plot_thalf():
         n_files=session_data["n_files"],
         chromatic=session_data["chromatic"],
         scale=scale,
+        custom_titles=custom_titles,
+        thalf_session_id=session_id,
+        thalf_groups=groups,
     )
 
 

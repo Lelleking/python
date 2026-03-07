@@ -43,6 +43,17 @@
 
         <p><strong>*</strong> = not valid aggregation</p>
 
+        <details style="margin:8px 0 10px;">
+            <summary style="cursor:pointer; display:inline-block; border:1px solid #cbd5e1; border-radius:8px; padding:6px 10px; background:#f8fafc;">
+                Change plot / axis titles
+            </summary>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+                <input type="text" name="custom_x_label" placeholder="x-axis title (optional)" value="{{ custom_titles.x if custom_titles else '' }}">
+                <input type="text" name="custom_y_label" placeholder="y-axis title (optional)" value="{{ custom_titles.y if custom_titles else '' }}">
+                <input type="text" name="custom_plot_title" placeholder="plot headline (optional)" value="{{ custom_titles.title if custom_titles else '' }}">
+            </div>
+        </details>
+
         <div id="well-list">
             {% for well in wells %}
             <label style="display:inline-block; min-width:80px; margin:4px 8px 4px 0;">
@@ -53,7 +64,7 @@
         </div>
 
         <div style="margin-top:12px;">
-            <button type="submit">Generate plot</button>
+            <button type="submit" name="action" value="update">Generate plot</button>
         </div>
     </form>
 

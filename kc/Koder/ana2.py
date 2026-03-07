@@ -2,7 +2,6 @@ import re
 import numpy as np
 import glob
 from scipy.optimize import curve_fit
-from scipy.integrate import trapezoid
 from scipy.signal import savgol_filter
 
 
@@ -197,13 +196,35 @@ def extract_features_from_current_folder():
 
         smooth_signal = savgol_filter(signal, window_length=window, polyorder=3)
 
-        # 2️⃣ Robust baseline (first 5%)
-        baseline_end = int(0.05 * N)
-        baseline = np.mean(smooth_signal[:baseline_end])
-        noise = np.std(smooth_signal[:baseline_end])
+        # 2️⃣ Baseline (same interval-logic as app.py estimate_baseline_plateau_from_signal)
+        baseline_end_idx = max(1, int(0.05 * N))
+        baseline_y_slice = smooth_signal[:baseline_end_idx]
+        b_min, b_max = np.min(baseline_y_slice), np.max(baseline_y_slice)
 
-        # 3️⃣ Robust plateau (95th percentile)
-        plateau = np.percentile(smooth_signal, 95)
+        last_idx_in_baseline = 0
+        for i in range(N):
+            if b_min <= smooth_signal[i] <= b_max:
+                last_idx_in_baseline = i
+            else:
+                if i > baseline_end_idx:
+                    break
+        baseline = float(smooth_signal[last_idx_in_baseline])
+        noise = float(np.std(baseline_y_slice))
+
+        # 3️⃣ Plateau (same interval-logic as app.py estimate_baseline_plateau_from_signal)
+        plateau_start_idx = max(0, N - max(1, int(0.05 * N)))
+        plateau_y_slice = smooth_signal[plateau_start_idx:]
+        p_min, p_max = np.min(plateau_y_slice), np.max(plateau_y_slice)
+
+        first_idx_in_plateau = N - 1
+        for i in range(N - 1, -1, -1):
+            if p_min <= smooth_signal[i] <= p_max:
+                first_idx_in_plateau = i
+            else:
+                if i < plateau_start_idx:
+                    break
+        plateau = float(smooth_signal[first_idx_in_plateau])
+
         amplitude = plateau - baseline
         max_signal = np.max(signal)
 
@@ -270,13 +291,29 @@ def extract_features_from_current_folder():
         time_50 = time[np.argmax(norm_signal >= 0.5)] if np.any(norm_signal >= 0.5) else 0
         time_90 = time[np.argmax(norm_signal >= 0.9)] if np.any(norm_signal >= 0.9) else 0
 
-        # 7️⃣ AUC (trimmed region)
-        auc = trapezoid(
-            smooth_signal[start_idx:end_idx],
-            time[start_idx:end_idx]
-        )
+        # 7️⃣ Tangent-based lag time at max slope point
+        i_max = int(np.argmax(slopes))
+        i_tan = int(min(N - 1, i_max + (W // 2)))
+        t_max = float(time[i_tan])
+        y_max = float(smooth_signal[i_tan])
+        lag_time = t_max - ((y_max - baseline) / max_slope)
+        if not np.isfinite(lag_time) or lag_time < 0:
+            lag_time = 0.0
 
-        # 8️⃣ Trimmed 4PL fit
+        # 8️⃣ Biphasic ratio: second slope peak after a dip below 50% of peak1
+        peak1 = float(max_slope)
+        peak1_idx = i_max
+        min_sep = max(3, int(0.05 * len(slopes)))
+        peak2 = 0.0
+        for j in range(peak1_idx + min_sep, len(slopes)):
+            between = slopes[peak1_idx:j + 1]
+            if between.size == 0:
+                continue
+            if np.min(between) < 0.5 * peak1 and slopes[j] > peak2:
+                peak2 = float(slopes[j])
+        biphasic_ratio = (peak2 / peak1) if peak2 > 0 else 0.0
+
+        # 9️⃣ Trimmed 4PL fit
         t_half_fit = calculate_halftime_trimmed(
             time,
             smooth_signal,
@@ -290,7 +327,8 @@ def extract_features_from_current_folder():
         feature_dict[well] = {
             "amplitude": amplitude,
             "max_slope": max_slope,
-            "auc": auc,
+            "lag_time": lag_time,
+            "biphasic_ratio": biphasic_ratio,
             "baseline_noise": noise,
             "baseline_level": baseline,
             "plateau_level": plateau,

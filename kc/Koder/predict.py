@@ -60,7 +60,8 @@ features_df.rename(columns={"index": "Well"}, inplace=True)
 feature_cols_cls = [
     "amplitude",
     "max_slope",
-    "auc",
+    "lag_time",
+    "biphasic_ratio",
     "baseline_noise",
     "time_10",
     "time_50",

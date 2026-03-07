@@ -3,6 +3,154 @@
 <head>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <title>Aggregation Analysis</title>
+    <style>
+        .agg-form {
+            margin-bottom: 8px;
+        }
+        .controls-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 240px;
+            gap: 14px;
+            align-items: start;
+        }
+        .controls-main {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+        .ctrl-row {
+            flex-basis: 100%;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .global-box {
+            border: 1px solid #d1d5db;
+            border-radius: 12px;
+            background: #ffffff;
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .global-box-title {
+            font-weight: 600;
+            font-size: 14px;
+            color: #1f2937;
+        }
+        .global-field {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            font-size: 14px;
+        }
+        .rep-row {
+            flex-basis: 100%;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: nowrap;
+            white-space: nowrap;
+            overflow-x: visible;
+            padding-top: 2px;
+            font-size: 14px;
+        }
+        .drop-wrap {
+            position: relative;
+            display: inline-block;
+            margin-right: 18px;
+        }
+        .drop-wrap > summary {
+            list-style: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .drop-wrap > summary::-webkit-details-marker {
+            display: none;
+        }
+        .drop-wrap > summary::after {
+            content: "▾";
+            font-size: 12px;
+            color: #6b7280;
+            transform: translateY(1px);
+        }
+        .drop-wrap[open] > summary::after {
+            content: "▴";
+        }
+        .drop-panel {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            z-index: 30;
+            margin-top: 0;
+            padding: 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            background: #fff;
+            max-height: 220px;
+            overflow: auto;
+            min-width: 190px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+        }
+        .rep-right {
+            margin-left: 10px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .rep-note {
+            flex-basis: 100%;
+            margin-left: 18px;
+            font-size: 12px;
+            color: #6b7280;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .global-submit {
+            width: 100%;
+        }
+        .plot-title {
+            margin: 0 0 4px;
+            font-size: 34px;
+            line-height: 1.1;
+            font-weight: 800;
+            color: #0f172a;
+            letter-spacing: -0.02em;
+            text-align: center;
+        }
+        .plot-subtitle {
+            margin: 0 0 8px;
+            color: #475569;
+            font-size: 14px;
+            text-align: center;
+        }
+        .plot-head {
+            margin-top: 8px;
+            margin-bottom: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+        .plot-head a {
+            margin: 0;
+        }
+        .side-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        @media (max-width: 980px) {
+            .controls-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
     {% if train_metrics %}
@@ -17,56 +165,195 @@
     <p>Files merged: {{ n_files }}</p>
     <p>Selected chromatic: {{ chromatic }}</p>
     <p>Time unit: {{ time_unit_suffix }}</p>
-    <form method="get" action="{{ url_for('aggregation_analysis_view', analysis_id=analysis_id) }}" style="margin-bottom:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-        <label for="mode">Analyze</label>
-        <select id="mode" name="mode">
-            <option value="groups" {% if current_mode == 'groups' %}selected{% endif %}>Groups</option>
-            <option value="wells" {% if current_mode == 'wells' %}selected{% endif %}>Single wells</option>
-        </select>
+    <form method="get" action="{{ url_for('aggregation_analysis_view', analysis_id=analysis_id) }}" class="agg-form">
+        <div class="controls-layout">
+            <div class="controls-main">
+                <div class="ctrl-row">
+                    <label for="mode">Analyze</label>
+                    <select id="mode" name="mode">
+                        <option value="groups" {% if current_mode == 'groups' %}selected{% endif %}>Groups</option>
+                        <option value="wells" {% if current_mode == 'wells' %}selected{% endif %}>Single wells</option>
+                    </select>
 
-        <label for="item-select">{% if current_mode == 'groups' %}Group{% else %}Well{% endif %}</label>
-        <select id="item-select" name="item">
-            {% if current_mode == 'groups' %}
-                {% for name in group_options %}
-                <option value="{{ name }}" {% if name == current_item %}selected{% endif %}>{{ name }}</option>
-                {% endfor %}
-            {% else %}
-                {% for w in well_options %}
-                <option value="{{ w }}" {% if w == current_item %}selected{% endif %}>{{ w }}</option>
-                {% endfor %}
-            {% endif %}
-        </select>
-        <label style="display:inline-flex; align-items:center; gap:4px; margin-left:8px;">
-            <input type="checkbox" name="show_halftime" value="1" {% if show_halftime %}checked{% endif %}>
-            show halftime dot
-        </label>
-        <label style="display:inline-flex; align-items:center; gap:4px;">
-            <input type="checkbox" name="show_baseline" value="1" {% if show_baseline %}checked{% endif %}>
-            show baseline dot
-        </label>
-        <label style="display:inline-flex; align-items:center; gap:4px;">
-            <input type="checkbox" name="show_plateau" value="1" {% if show_plateau %}checked{% endif %}>
-            show plateau dot
-        </label>
-        <button type="submit">Show</button>
+                    {% if current_mode == 'groups' %}
+                    <details style="display:inline-block;">
+                        <summary style="cursor:pointer;">Group / All groups</summary>
+                        <div style="margin-top:6px; padding:8px; border:1px solid #d1d5db; border-radius:8px; background:#fff; max-height:220px; overflow:auto; min-width:200px;">
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                                <input type="checkbox" id="item-groups-all" name="item_groups" value="__all_groups__" {% if current_item == '__all_groups__' %}checked{% endif %}>
+                                All groups
+                            </label>
+                            {% for name in group_options %}
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" name="item_groups" value="{{ name }}"
+                                       class="item-groups-specific"
+                                       {% if current_item == name or (current_item == '__selected_groups__' and name in item_groups_selected) %}checked{% endif %}>
+                                {{ name }}
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </details>
+                    {% else %}
+                    <label for="item-select">Well</label>
+                    <select id="item-select" name="item">
+                        {% for w in well_options %}
+                        <option value="{{ w }}" {% if w == current_item %}selected{% endif %}>{{ w }}</option>
+                        {% endfor %}
+                    </select>
+                    {% endif %}
+                </div>
+
+                <div class="ctrl-row">
+                    <label style="display:inline-flex; align-items:center; gap:4px;">
+                        <input type="checkbox" name="show_halftime" value="1" {% if show_halftime %}checked{% endif %}>
+                        show halftime dot
+                    </label>
+                    <label style="display:inline-flex; align-items:center; gap:4px;">
+                        <input type="checkbox" name="show_baseline" value="1" {% if show_baseline %}checked{% endif %}>
+                        show baseline dot
+                    </label>
+                    <label style="display:inline-flex; align-items:center; gap:4px;">
+                        <input type="checkbox" name="show_plateau" value="1" {% if show_plateau %}checked{% endif %}>
+                        show plateau dot
+                    </label>
+                </div>
+
+                <div class="ctrl-row">
+                    <label style="display:inline-flex; align-items:center; gap:4px;">
+                        <input type="checkbox" name="normalize_plot" value="1" {% if normalize_plot %}checked{% endif %}>
+                        normalized curve
+                    </label>
+                </div>
+
+                <details class="ctrl-row">
+                    <summary style="cursor:pointer; display:inline-block; border:1px solid #cbd5e1; border-radius:8px; padding:6px 10px; background:#f8fafc;">
+                        Change plot / axis titles
+                    </summary>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+                        <input type="text" name="custom_x_label" placeholder="x-axis title (optional)" value="{{ custom_titles.x if custom_titles else '' }}">
+                        <input type="text" name="custom_y_label" placeholder="y-axis title (optional)" value="{{ custom_titles.y if custom_titles else '' }}">
+                        <input type="text" name="custom_plot_title" placeholder="plot headline (optional)" value="{{ custom_titles.title if custom_titles else '' }}">
+                    </div>
+                </details>
+
+                {% if current_mode == 'groups' %}
+                <div class="rep-row">
+                    <span>Select the</span>
+                    <select name="rep_count" style="width:auto;">
+                        {% for n in range(1, rep_max + 1) %}
+                        <option value="{{ n }}" {% if n == rep_count %}selected{% endif %}>{{ n }}</option>
+                        {% endfor %}
+                    </select>
+                    <span>most representative curves for groups</span>
+                    <details class="drop-wrap">
+                        <summary style="cursor:pointer;">Select groups</summary>
+                        <div class="drop-panel">
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                                <input type="checkbox" id="rep-groups-all" name="rep_groups" value="__all_groups__" {% if rep_groups_all %}checked{% endif %}>
+                                All groups
+                            </label>
+                            {% for name in group_options %}
+                            <label style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                                <input type="checkbox" class="rep-groups-specific" name="rep_groups" value="{{ name }}" {% if (not rep_groups_all) and (name in rep_groups) %}checked{% endif %}>
+                                {{ name }}
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </details>
+                    <label class="rep-right">
+                        Select representative
+                        <input type="checkbox" name="select_representative" value="1" {% if select_representative %}checked{% endif %}>
+                    </label>
+                </div>
+                <label class="rep-note">
+                    <input type="checkbox" name="rep_merge_only" value="1" {% if rep_merge_only %}checked{% endif %}>
+                    only use these wells to merge
+                </label>
+                {% endif %}
+            </div>
+
+            <div class="side-panel">
+                <aside class="global-box">
+                    <div class="global-box-title">Global fitting</div>
+                    <label class="global-field">
+                        <span>Enable</span>
+                        <input type="checkbox" name="global_fit" value="1" {% if global_fit %}checked{% endif %}>
+                    </label>
+                    <label class="global-field">
+                        <span>ML Smart Init</span>
+                        <input type="checkbox" name="smart_init" value="1" {% if smart_init %}checked{% endif %}>
+                    </label>
+                    <label class="global-field">
+                        <span>Show residuals</span>
+                        <input type="checkbox" name="show_residuals" value="1" {% if show_residuals %}checked{% endif %}>
+                    </label>
+                    <label class="global-field">
+                        <span>Merge group curves</span>
+                        <input type="checkbox" name="merge_group_curves" value="1" {% if merge_group_curves %}checked{% endif %}>
+                    </label>
+                    <label class="global-field">
+                        <span>Merge method</span>
+                        <select name="merge_method" style="width:150px;">
+                            <option value="standard" {% if merge_method == 'standard' %}selected{% endif %}>Standard Y-averaging</option>
+                            <option value="inverse" {% if merge_method != 'standard' %}selected{% endif %}>Time-aligned (Inverse)</option>
+                        </select>
+                    </label>
+                    <label class="global-field">
+                        <span>Restarts</span>
+                        <input type="number" min="1" max="40" name="global_restarts" value="{{ global_restarts }}" style="width:84px;">
+                    </label>
+                    {% if global_fit %}
+                    {% if global_fit_result and global_fit_result.success %}
+                    <div style="margin-top:4px; padding-top:8px; border-top:1px solid #e5e7eb; font-size:13px; color:#1f2937;">
+                        <div><strong>Global fit</strong></div>
+                        <div>kn_plus = {{ "%.4g"|format(global_fit_result.best_params.kn_plus) }}</div>
+                        <div>k2_plus = {{ "%.4g"|format(global_fit_result.best_params.k2_plus) }}</div>
+                        <div>nc = {{ "%.4g"|format(global_fit_result.best_params.nc) }}</div>
+                        <div>n2 = {{ "%.4g"|format(global_fit_result.best_params.n2) }}</div>
+                        <div>km_sat = {{ "%.4g"|format(global_fit_result.best_params.km_sat) }}</div>
+                        <div>RMSE = {{ "%.4g"|format(global_fit_result.fit_error) }}</div>
+                    </div>
+                    {% elif global_fit_error %}
+                    <div style="margin-top:4px; padding-top:8px; border-top:1px solid #e5e7eb; color:#b91c1c; font-size:13px;">
+                        {{ global_fit_error }}
+                    </div>
+                    {% endif %}
+                    {% endif %}
+                </aside>
+                <button type="submit" class="global-submit">uptade plot</button>
+            </div>
+        </div>
     </form>
 
-    <p>{{ subtitle }}</p>
-    <p>Wells: {{ group_wells | join(", ") }}</p>
-
-    <p><a href="{{ url_for('plot_download', plot_id=image_id) }}">Download plot</a></p>
+    <div class="plot-head">
+        <h2 class="plot-title">{{ plot_header_title }}</h2>
+        {% if plot_header_meta %}
+        <p class="plot-subtitle">{{ plot_header_meta }}</p>
+        {% endif %}
+        {% if group_wells %}
+        <p class="plot-subtitle">{{ plot_header_label }}: {{ group_wells | join(", ") }}</p>
+        {% endif %}
+        <a href="{{ url_for('plot_download', plot_id=image_id) }}">Download plot</a>
+    </div>
 
     <div class="plot-nav-layout">
         {% if has_prev %}
-        <a class="nav-arrow nav-left" href="{{ url_for('aggregation_analysis_view', analysis_id=analysis_id, mode=current_mode, item=prev_item, show_halftime=(1 if show_halftime else 0), show_baseline=(1 if show_baseline else 0), show_plateau=(1 if show_plateau else 0)) }}" aria-label="Previous">&#8592;</a>
+        <a class="nav-arrow nav-left" href="{{ url_for('aggregation_analysis_view', analysis_id=analysis_id, mode=current_mode, item=prev_item, show_halftime=(1 if show_halftime else 0), show_baseline=(1 if show_baseline else 0), show_plateau=(1 if show_plateau else 0), normalize_plot=(1 if normalize_plot else 0), global_fit=(1 if global_fit else 0), smart_init=(1 if smart_init else 0), show_residuals=(1 if show_residuals else 0), merge_group_curves=(1 if merge_group_curves else 0), merge_method=merge_method, global_restarts=global_restarts, select_representative=(1 if select_representative else 0), rep_merge_only=(1 if rep_merge_only else 0), rep_count=rep_count, rep_groups=rep_groups_query, item_groups=item_groups_selected, custom_x_label=(custom_titles.x if custom_titles else ''), custom_y_label=(custom_titles.y if custom_titles else ''), custom_plot_title=(custom_titles.title if custom_titles else '')) }}" aria-label="Previous">&#8592;</a>
         {% else %}
         <span class="nav-arrow nav-left nav-disabled" aria-hidden="true">&#8592;</span>
         {% endif %}
 
-        <img src="{{ image_url }}" alt="Group aggregation plot" style="max-width:100%; height:auto; border:1px solid #ccc; border-radius:10px; background:#fff;">
+        {% if current_mode == 'groups' %}
+        <div id="agg-plot-wrapper" style="position:relative; flex:1; max-width:100%;">
+            <canvas id="agg-plot-canvas" style="width:100%; max-width:100%; border:1px solid #ccc; border-radius:10px; background:#fff;"></canvas>
+            <div id="agg-plot-tooltip" style="position:absolute; pointer-events:none; background:#111827; color:#f9fafb; padding:4px 8px; border-radius:4px; font-size:12px; display:none; z-index:10;"></div>
+        </div>
+        {% else %}
+        <img src="{{ image_url }}" alt="Aggregation plot" style="max-width:100%; height:auto; border:1px solid #ccc; border-radius:10px; background:#fff;">
+        {% endif %}
 
         {% if has_next %}
-        <a class="nav-arrow nav-right" href="{{ url_for('aggregation_analysis_view', analysis_id=analysis_id, mode=current_mode, item=next_item, show_halftime=(1 if show_halftime else 0), show_baseline=(1 if show_baseline else 0), show_plateau=(1 if show_plateau else 0)) }}" aria-label="Next">&#8594;</a>
+        <a class="nav-arrow nav-right" href="{{ url_for('aggregation_analysis_view', analysis_id=analysis_id, mode=current_mode, item=next_item, show_halftime=(1 if show_halftime else 0), show_baseline=(1 if show_baseline else 0), show_plateau=(1 if show_plateau else 0), normalize_plot=(1 if normalize_plot else 0), global_fit=(1 if global_fit else 0), smart_init=(1 if smart_init else 0), show_residuals=(1 if show_residuals else 0), merge_group_curves=(1 if merge_group_curves else 0), merge_method=merge_method, global_restarts=global_restarts, select_representative=(1 if select_representative else 0), rep_merge_only=(1 if rep_merge_only else 0), rep_count=rep_count, rep_groups=rep_groups_query, item_groups=item_groups_selected, custom_x_label=(custom_titles.x if custom_titles else ''), custom_y_label=(custom_titles.y if custom_titles else ''), custom_plot_title=(custom_titles.title if custom_titles else '')) }}" aria-label="Next">&#8594;</a>
         {% else %}
         <span class="nav-arrow nav-right nav-disabled" aria-hidden="true">&#8594;</span>
         {% endif %}
@@ -85,6 +372,399 @@
                 itemEl.form.submit();
             });
         }
+
+        // "All groups" and specific group checkboxes are mutually exclusive.
+        (function () {
+            const allCb = document.getElementById("item-groups-all");
+            const specific = Array.from(document.querySelectorAll(".item-groups-specific"));
+            if (!allCb || specific.length === 0) return;
+
+            allCb.addEventListener("change", function () {
+                if (allCb.checked) {
+                    specific.forEach(cb => { cb.checked = false; });
+                }
+            });
+            specific.forEach(cb => {
+                cb.addEventListener("change", function () {
+                    if (cb.checked && allCb.checked) {
+                        allCb.checked = false;
+                    }
+                });
+            });
+        })();
+
+        // Same exclusivity for representative-group selector.
+        (function () {
+            const allCb = document.getElementById("rep-groups-all");
+            const specific = Array.from(document.querySelectorAll(".rep-groups-specific"));
+            if (!allCb || specific.length === 0) return;
+
+            allCb.addEventListener("change", function () {
+                if (allCb.checked) {
+                    specific.forEach(cb => { cb.checked = false; });
+                }
+            });
+            specific.forEach(cb => {
+                cb.addEventListener("change", function () {
+                    if (cb.checked && allCb.checked) {
+                        allCb.checked = false;
+                    }
+                });
+            });
+        })();
+
+        // Lightweight interactive hover for group mode:
+        // show well id near cursor when hovering a curve.
+        (function () {
+            const isGroupMode = "{{ current_mode }}" === "groups";
+            if (!isGroupMode) {
+                return;
+            }
+            const payload = {{ interactive_payload | tojson | safe }};
+            if (!payload || !payload.x || !payload.traces || payload.traces.length === 0) {
+                return;
+            }
+            const globalFit = payload.global_fit || {};
+            const hasGlobalFit = !!globalFit.enabled;
+            const showResidualPanel = !!globalFit.show_residuals;
+
+            const canvas = document.getElementById("agg-plot-canvas");
+            const tooltip = document.getElementById("agg-plot-tooltip");
+            if (!canvas || !canvas.getContext) {
+                return;
+            }
+            const ctx = canvas.getContext("2d");
+
+            function resizeCanvas() {
+                const rect = canvas.getBoundingClientRect();
+                canvas.width = rect.width * window.devicePixelRatio;
+                const plotHeight = showResidualPanel ? 520 : 380;
+                canvas.height = plotHeight * window.devicePixelRatio;
+                canvas.style.height = plotHeight + "px";
+                draw();
+            }
+
+            const xs = payload.x;
+            let yMin = Infinity;
+            let yMax = -Infinity;
+            payload.traces.forEach(tr => {
+                tr.y.forEach(v => {
+                    if (!isFinite(v)) return;
+                    if (v < yMin) yMin = v;
+                    if (v > yMax) yMax = v;
+                });
+                if (hasGlobalFit && globalFit.model_predictions && Array.isArray(globalFit.model_predictions[tr.well])) {
+                    globalFit.model_predictions[tr.well].forEach(v => {
+                        if (!isFinite(v)) return;
+                        if (v < yMin) yMin = v;
+                        if (v > yMax) yMax = v;
+                    });
+                }
+            });
+            if (!isFinite(yMin) || !isFinite(yMax) || yMin === yMax) {
+                yMin = 0;
+                yMax = 1;
+            }
+
+            function draw() {
+                const W = canvas.width;
+                const H = canvas.height;
+                const dpr = window.devicePixelRatio;
+                const padL = 70 * dpr;
+                const padR = 18 * dpr;
+                const padT = 20 * dpr;
+                const padB = 56 * dpr;
+                const resH = showResidualPanel ? (130 * dpr) : 0;
+                const resGap = showResidualPanel ? (24 * dpr) : 0;
+                const mainTop = padT;
+                const mainBottom = H - padB - resH - resGap;
+                ctx.clearRect(0, 0, W, H);
+
+                const x0 = xs[0];
+                const x1 = xs[xs.length - 1];
+                const xSpan = x1 - x0 || 1;
+                const ySpan = yMax - yMin || 1;
+
+                function xToPx(x) {
+                    return padL + ((x - x0) / xSpan) * (W - padL - padR);
+                }
+                function yToPx(y) {
+                    return mainBottom - ((y - yMin) / ySpan) * (mainBottom - mainTop);
+                }
+
+                // Axes + ticks/labels so x/y values are visible.
+                ctx.strokeStyle = "#9ca3af";
+                ctx.lineWidth = 1 * dpr;
+                ctx.beginPath();
+                ctx.moveTo(padL, mainTop);
+                ctx.lineTo(padL, mainBottom);
+                ctx.lineTo(W - padR, mainBottom);
+                ctx.stroke();
+
+                ctx.fillStyle = "#4b5563";
+                ctx.font = `${12 * dpr}px sans-serif`;
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                const xTicks = 5;
+                for (let t = 0; t <= xTicks; t++) {
+                    const xv = x0 + (t / xTicks) * xSpan;
+                    const px = xToPx(xv);
+                    const py = mainBottom;
+                    ctx.beginPath();
+                    ctx.moveTo(px, py);
+                    ctx.lineTo(px, py + 5 * dpr);
+                    ctx.strokeStyle = "#9ca3af";
+                    ctx.stroke();
+                    ctx.fillText(xv.toFixed(1), px, py + 7 * dpr);
+                }
+
+                ctx.textAlign = "right";
+                ctx.textBaseline = "middle";
+                const yTicks = 5;
+                for (let t = 0; t <= yTicks; t++) {
+                    const yv = yMin + (t / yTicks) * ySpan;
+                    const py = yToPx(yv);
+                    ctx.beginPath();
+                    ctx.moveTo(padL - 5 * dpr, py);
+                    ctx.lineTo(padL, py);
+                    ctx.strokeStyle = "#9ca3af";
+                    ctx.stroke();
+                    ctx.fillText(yv.toFixed(0), padL - 8 * dpr, py);
+                }
+
+                // Axis titles.
+                ctx.fillStyle = "#374151";
+                ctx.font = `${13 * dpr}px sans-serif`;
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                const xAxisLabel = {{ ((custom_titles.x if custom_titles and custom_titles.x else ("Time (" ~ time_unit_suffix ~ ")"))) | tojson }};
+                ctx.fillText(xAxisLabel, (padL + (W - padR)) / 2, mainBottom + 28 * dpr);
+                ctx.save();
+                ctx.translate(20 * dpr, (mainTop + mainBottom) / 2);
+                ctx.rotate(-Math.PI / 2);
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                const yAxisLabel = {{ ((custom_titles.y if custom_titles and custom_titles.y else ("Normalized fluorescence (0-1)" if normalize_plot else "Fluorescence (a.u.)"))) | tojson }};
+                ctx.fillText(yAxisLabel, 0, 0);
+                ctx.restore();
+
+                // Curves
+                payload.traces.forEach(tr => {
+                    const yArr = tr.y;
+                    if (!yArr || yArr.length !== xs.length) return;
+                    // Raw data points (so users can verify fit vs data).
+                    const stride = Math.max(1, Math.floor(xs.length / 180));
+                    for (let i = 0; i < xs.length; i += stride) {
+                        const px = xToPx(xs[i]);
+                        const py = yToPx(yArr[i]);
+                        ctx.beginPath();
+                        ctx.fillStyle = (tr.color || "#2563EB") + "55";
+                        ctx.arc(px, py, 1.5 * dpr, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    ctx.beginPath();
+                    ctx.strokeStyle = tr.color || "#2563EB";
+                    ctx.lineWidth = 1.5 * window.devicePixelRatio;
+                    xs.forEach((xVal, i) => {
+                        const px = xToPx(xVal);
+                        const py = yToPx(yArr[i]);
+                        if (i === 0) {
+                            ctx.moveTo(px, py);
+                        } else {
+                            ctx.lineTo(px, py);
+                        }
+                    });
+                    ctx.stroke();
+                    if (hasGlobalFit && globalFit.model_predictions && Array.isArray(globalFit.model_predictions[tr.well])) {
+                        const fitY = globalFit.model_predictions[tr.well];
+                        if (fitY.length === xs.length) {
+                            ctx.beginPath();
+                            ctx.strokeStyle = tr.color || "#2563EB";
+                            ctx.lineWidth = 2.5 * window.devicePixelRatio;
+                            ctx.setLineDash([6 * dpr, 4 * dpr]);
+                            xs.forEach((xVal, i) => {
+                                const px = xToPx(xVal);
+                                const py = yToPx(fitY[i]);
+                                if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                            });
+                            ctx.stroke();
+                            ctx.setLineDash([]);
+                        }
+                    }
+
+                    // Optional halftime/baseline/plateau dots for this well (driven by checkboxes)
+                    if (Array.isArray(tr.dots)) {
+                        tr.dots.forEach(dot => {
+                            const dx = typeof dot.x === "number" ? dot.x : null;
+                            const dy = typeof dot.y === "number" ? dot.y : null;
+                            if (dx === null || dy === null) return;
+                            const px = xToPx(dx);
+                            const py = yToPx(dy);
+                            const radius = 4 * window.devicePixelRatio;
+                            ctx.beginPath();
+                            ctx.fillStyle = dot.color || "#DC2626";
+                            ctx.arc(px, py, radius, 0, Math.PI * 2);
+                            ctx.fill();
+                            // white border for visibility
+                            ctx.lineWidth = 1.5 * window.devicePixelRatio;
+                            ctx.strokeStyle = "#ffffff";
+                            ctx.stroke();
+                        });
+                    }
+                });
+
+                // Optional residual panel (data - model).
+                if (showResidualPanel && hasGlobalFit && globalFit.residuals) {
+                    const resTop = mainBottom + resGap;
+                    const resBottom = H - padB;
+                    let rMin = Infinity;
+                    let rMax = -Infinity;
+                    payload.traces.forEach(tr => {
+                        const rr = globalFit.residuals[tr.well];
+                        if (!Array.isArray(rr) || rr.length !== xs.length) return;
+                        rr.forEach(v => {
+                            if (!isFinite(v)) return;
+                            if (v < rMin) rMin = v;
+                            if (v > rMax) rMax = v;
+                        });
+                    });
+                    if (!isFinite(rMin) || !isFinite(rMax) || rMin === rMax) {
+                        rMin = -1;
+                        rMax = 1;
+                    }
+                    const rSpan = (rMax - rMin) || 1;
+                    function rToPx(r) {
+                        return resBottom - ((r - rMin) / rSpan) * (resBottom - resTop);
+                    }
+                    ctx.strokeStyle = "#9ca3af";
+                    ctx.lineWidth = 1 * dpr;
+                    ctx.beginPath();
+                    ctx.moveTo(padL, resTop);
+                    ctx.lineTo(padL, resBottom);
+                    ctx.lineTo(W - padR, resBottom);
+                    ctx.stroke();
+                    // zero line
+                    if (rMin <= 0 && 0 <= rMax) {
+                        const z = rToPx(0);
+                        ctx.beginPath();
+                        ctx.strokeStyle = "#6b7280";
+                        ctx.setLineDash([4 * dpr, 4 * dpr]);
+                        ctx.moveTo(padL, z);
+                        ctx.lineTo(W - padR, z);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
+                    payload.traces.forEach(tr => {
+                        const rr = globalFit.residuals[tr.well];
+                        if (!Array.isArray(rr) || rr.length !== xs.length) return;
+                        ctx.beginPath();
+                        ctx.strokeStyle = tr.color || "#2563EB";
+                        ctx.lineWidth = 1.2 * dpr;
+                        xs.forEach((xVal, i) => {
+                            const px = xToPx(xVal);
+                            const py = rToPx(rr[i]);
+                            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                        });
+                        ctx.stroke();
+                    });
+                    ctx.fillStyle = "#374151";
+                    ctx.font = `${12 * dpr}px sans-serif`;
+                    ctx.textAlign = "left";
+                    ctx.textBaseline = "top";
+                    ctx.fillText("Residuals (data - model)", padL + 2 * dpr, resTop + 2 * dpr);
+                }
+
+                // Store helper for hit testing
+                canvas._aggPlot = {
+                    xToPx,
+                    yToPx,
+                    xs,
+                    yMin,
+                    yMax,
+                    xSpan,
+                    ySpan,
+                    padL,
+                    padR,
+                    padT,
+                    padB,
+                    traces: payload.traces,
+                };
+            }
+
+            window.addEventListener("resize", resizeCanvas);
+            resizeCanvas();
+
+            canvas.addEventListener("mousemove", function (evt) {
+                const state = canvas._aggPlot;
+                if (!state) return;
+                const rect = canvas.getBoundingClientRect();
+                const mx = (evt.clientX - rect.left) * window.devicePixelRatio;
+                const my = (evt.clientY - rect.top) * window.devicePixelRatio;
+
+                let best = null;
+                const maxDist = 15 * window.devicePixelRatio;
+                state.traces.forEach(tr => {
+                    const yArr = tr.y;
+                    if (!yArr || yArr.length !== state.xs.length) return;
+                    state.xs.forEach((xVal, i) => {
+                        const px = state.xToPx(xVal);
+                        const py = state.yToPx(yArr[i]);
+                        const dx = mx - px;
+                        const dy = my - py;
+                        const d = Math.sqrt(dx * dx + dy * dy);
+                        if (d <= maxDist && (!best || d < best.d)) {
+                            best = { d, px, py, well: tr.well, x: xVal, y: yArr[i], color: tr.color || "#2563EB" };
+                        }
+                    });
+
+                    // Also consider explicit dots (halftime/baseline/plateau) as hover targets
+                    if (Array.isArray(tr.dots)) {
+                        tr.dots.forEach(dot => {
+                            const dx = typeof dot.x === "number" ? dot.x : null;
+                            const dy = typeof dot.y === "number" ? dot.y : null;
+                            if (dx === null || dy === null) return;
+                            const px = state.xToPx(dx);
+                            const py = state.yToPx(dy);
+                            const dxm = mx - px;
+                            const dym = my - py;
+                            const d = Math.sqrt(dxm * dxm + dym * dym);
+                            if (d <= maxDist && (!best || d < best.d)) {
+                                best = { d, px, py, well: tr.well, x: dx, y: dy, color: dot.color || tr.color || "#2563EB" };
+                            }
+                        });
+                    }
+                });
+
+                if (!best) {
+                    tooltip.style.display = "none";
+                    canvas.style.cursor = "default";
+                    return;
+                }
+
+                // Draw a small highlight dot
+                draw();
+                ctx.beginPath();
+                ctx.fillStyle = best.color;
+                ctx.arc(best.px, best.py, 4 * window.devicePixelRatio, 0, Math.PI * 2);
+                ctx.fill();
+
+                const timeLabel = best.x.toFixed(2);
+                const yLabel = Number.isFinite(best.y) ? best.y.toFixed(1) : "N/A";
+                tooltip.textContent = `${best.well} | x=${timeLabel} {{ time_unit_suffix }}, y=${yLabel} a.u.`;
+                tooltip.style.display = "block";
+                const tooltipX = evt.clientX - rect.left + 12;
+                const tooltipY = evt.clientY - rect.top + 12;
+                tooltip.style.left = tooltipX + "px";
+                tooltip.style.top = tooltipY + "px";
+                canvas.style.cursor = "crosshair";
+            });
+
+            canvas.addEventListener("mouseleave", function () {
+                tooltip.style.display = "none";
+                canvas.style.cursor = "default";
+                draw();
+            });
+        })();
     </script>
 
     <p><a href="/">Back</a></p>

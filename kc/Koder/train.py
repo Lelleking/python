@@ -272,7 +272,8 @@ df["sample_weight"] = pd.to_numeric(df["sample_weight"], errors="coerce").fillna
 feature_cols = [
     "amplitude",
     "max_slope",
-    "auc",
+    "lag_time",
+    "biphasic_ratio",
     "baseline_noise",
     "time_10",
     "time_50",

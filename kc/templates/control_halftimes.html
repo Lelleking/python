@@ -62,6 +62,17 @@
 
     <form action="{{ url_for('control_halftimes_update', control_id=control_id) }}" method="post">
         <input type="hidden" name="idx" value="{{ idx }}">
+        <details style="margin-bottom:8px;">
+            <summary style="cursor:pointer; display:inline-block; border:1px solid #cbd5e1; border-radius:8px; padding:6px 10px; background:#f8fafc;">
+                Change plot / axis titles
+            </summary>
+            <div class="controller-inline-row" style="margin-top:8px;">
+                <input type="text" name="custom_x_label" placeholder="x-axis title (optional)" value="{{ custom_titles.x if custom_titles else '' }}">
+                <input type="text" name="custom_y_label" placeholder="y-axis title (optional)" value="{{ custom_titles.y if custom_titles else '' }}">
+                <input type="text" name="custom_plot_title" placeholder="plot headline (optional)" value="{{ custom_titles.title if custom_titles else '' }}">
+                <button type="submit" name="action" value="update_titles">Update plot titles</button>
+            </div>
+        </details>
         <div class="controller-inline-row">
             <label for="custom-halftime">more accurate halftime?(in {{ time_unit_suffix }})</label>
             <input id="custom-halftime" name="custom_halftime" type="text" placeholder="e.g. 24.5">

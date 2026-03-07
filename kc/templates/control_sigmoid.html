@@ -62,6 +62,17 @@
         <input type="hidden" name="idx" value="{{ idx }}">
         <input type="hidden" id="submitted-baseline-x-input" name="submitted_baseline_x" value="{% if submitted_baseline_x is not none %}{{ submitted_baseline_x }}{% endif %}">
         <input type="hidden" id="submitted-plateau-x-input" name="submitted_plateau_x" value="{% if submitted_plateau_x is not none %}{{ submitted_plateau_x }}{% endif %}">
+        <details style="margin-bottom:8px;">
+            <summary style="cursor:pointer; display:inline-block; border:1px solid #cbd5e1; border-radius:8px; padding:6px 10px; background:#f8fafc;">
+                Change plot / axis titles
+            </summary>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+                <input type="text" name="custom_x_label" placeholder="x-axis title (optional)" value="{{ custom_titles.x if custom_titles else '' }}">
+                <input type="text" name="custom_y_label" placeholder="y-axis title (optional)" value="{{ custom_titles.y if custom_titles else '' }}">
+                <input type="text" name="custom_plot_title" placeholder="plot headline (optional)" value="{{ custom_titles.title if custom_titles else '' }}">
+                <button type="submit" name="action" value="update_titles">Update plot titles</button>
+            </div>
+        </details>
 
         <div style="padding:10px 12px; border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc;">
             <div style="display:grid; grid-template-columns:minmax(0,1fr) auto; gap:14px; align-items:flex-start;">

@@ -41,6 +41,17 @@
             <button type="submit" name="action" value="update">Update plot</button>
         </div>
 
+        <details style="margin-bottom:10px;">
+            <summary style="cursor:pointer; display:inline-block; border:1px solid #cbd5e1; border-radius:8px; padding:6px 10px; background:#f8fafc;">
+                Change plot / axis titles
+            </summary>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+                <input type="text" name="custom_x_label" placeholder="x-axis title (optional)" value="{{ custom_titles.x if custom_titles else '' }}">
+                <input type="text" name="custom_y_label" placeholder="y-axis title (optional)" value="{{ custom_titles.y if custom_titles else '' }}">
+                <input type="text" name="custom_plot_title" placeholder="plot headline (optional)" value="{{ custom_titles.title if custom_titles else '' }}">
+            </div>
+        </details>
+
         <h3>Group together</h3>
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
             <input id="group-name" type="text" placeholder="group name">
