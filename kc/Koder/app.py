@@ -1287,7 +1287,6 @@ def run_global_fit(
     sigmoid_preds=None,
     custom_titles=None,
     smart_init_enabled=False,
-    merged_normalized=False,
 ):
     x = np.array(time_axis_from_seconds(time_sec, time_unit), dtype=float)
     if len(x) < 3:
@@ -1367,17 +1366,14 @@ def run_global_fit(
             baseline = b_fb if baseline is None else baseline
             plateau = p_fb if plateau is None else plateau
 
-        if merged_normalized:
-            baseline = 0.0
-            amp = 1.0
-        else:
-            baseline = float(baseline)
-            plateau = float(plateau)
-            amp = float(plateau - baseline)
-            if not np.isfinite(amp) or abs(amp) < 1e-9:
-                amp = float(np.max(y) - baseline)
-            if not np.isfinite(amp) or abs(amp) < 1e-9:
-                continue
+        baseline = float(baseline)
+        baseline = max(0.0, baseline)
+        plateau = float(plateau)
+        amp = float(plateau - baseline)
+        if not np.isfinite(amp) or abs(amp) < 1e-9:
+            amp = float(np.max(y) - baseline)
+        if not np.isfinite(amp) or abs(amp) < 1e-9:
+            continue
         cond = float(cond_map.get(well, 1.0))
         datasets.append(
             {
@@ -1411,13 +1407,28 @@ def run_global_fit(
         for d in datasets:
             cond = float(d.get("cond", 0.0))
             t_h = well_halftime.get(d["well"]) if isinstance(well_halftime, dict) else None
+            if t_h is None:
+                # Robust fallback for merged/synthetic curve IDs where ML t1/2 may be missing:
+                # use x at half-level of this curve (baseline + 0.5 * amp).
+                try:
+                    x_arr = np.array(d["x"], dtype=float)
+                    y_arr = np.array(d["y"], dtype=float)
+                    if len(x_arr) == len(y_arr) and len(x_arr) >= 2:
+                        y_half = float(d["baseline"]) + 0.5 * float(d["amp"])
+                        t_h = float(np.interp(y_half, np.maximum.accumulate(y_arr), x_arr))
+                        if (not np.isfinite(t_h)) or t_h <= 0:
+                            # Fallback using nearest observed point to half-level.
+                            idx_h = int(np.argmin(np.abs(y_arr - y_half)))
+                            t_h = float(x_arr[idx_h])
+                except Exception:
+                    t_h = None
             if cond > 0 and t_h is not None and float(t_h) > 0:
                 log_conds.append(float(np.log(cond)))
                 log_halftimes.append(float(np.log(float(t_h))))
         if len(log_conds) >= 2:
             try:
                 gamma = float(np.polyfit(np.array(log_conds), np.array(log_halftimes), 1)[0])
-                if np.isfinite(gamma) and gamma < 0.0:
+                if np.isfinite(gamma):
                     guess_n2 = float(np.clip(-2.0 * gamma - 1.0, 0.5, 5.0))
             except Exception:
                 pass
@@ -1425,19 +1436,35 @@ def run_global_fit(
     cond_vals = [float(d.get("cond", 0.0)) for d in datasets if float(d.get("cond", 0.0)) > 0.0]
     median_cond = float(np.median(cond_vals)) if cond_vals else 1.0
     guess_log_km = float(guess_n2 * np.log(max(1e-12, median_cond)))
+    guess_log_km = float(np.clip(guess_log_km, -10.0, 25.0))
 
     bounds = [(-30.0, 10.0), (-30.0, 10.0), (0.1, 6.0), (0.1, 6.0), (-10.0, 25.0)]
     rng = np.random.default_rng(42)
     starts = [np.array([np.log(1e-6), np.log(1e-4), guess_nc, guess_n2, guess_log_km], dtype=float)]
+    if smart_init_enabled:
+        # Extra smart seeds with varied rate constants so Smart Init is not tied to one rate guess.
+        starts.extend(
+            [
+                np.array([np.log(1e-7), np.log(1e-5), guess_nc, guess_n2, guess_log_km], dtype=float),
+                np.array([np.log(1e-5), np.log(1e-3), guess_nc, guess_n2, guess_log_km], dtype=float),
+            ]
+        )
     for _ in range(max(1, int(n_restarts)) - 1):
+        if smart_init_enabled:
+            start_n2 = max(0.5, rng.normal(guess_n2, 0.3))
+            start_n2 = float(min(6.0, start_n2))
+            start_km = float(np.clip(rng.normal(guess_log_km, 1.0), -10.0, 25.0))
+        else:
+            start_n2 = float(rng.uniform(0.5, 4.5))
+            start_km = float(np.clip(rng.uniform(0.0, 15.0), -10.0, 25.0))
         starts.append(
             np.array(
                 [
                     np.log(10 ** rng.uniform(-9.0, -1.0)),
                     np.log(10 ** rng.uniform(-8.0, 0.0)),
                     rng.uniform(0.5, 4.5),
-                    rng.uniform(0.5, 4.5),
-                    rng.uniform(0.0, 15.0),
+                    start_n2,
+                    start_km,
                 ],
                 dtype=float,
             )
@@ -1613,6 +1640,9 @@ def average_group_signals(
     for group_name, group_wells in groups.items():
         if not isinstance(group_wells, list):
             continue
+        raw_rows = []
+        baselines = []
+        amps = []
         norm_rows = []
         for well in group_wells:
             y = wells_dict.get(well)
@@ -1643,17 +1673,19 @@ def average_group_signals(
             if not np.isfinite(amp) or abs(amp) < 1e-12:
                 continue
 
+            raw_rows.append(arr)
+            baselines.append(float(baseline))
+            amps.append(float(amp))
             y_norm = (arr - baseline) / amp
             y_norm = np.clip(y_norm, 0.0, 1.0)
             norm_rows.append(y_norm)
 
-        if not norm_rows:
+        if not norm_rows or not raw_rows:
             continue
 
-        mat = np.vstack(norm_rows)
-        standard_mean = np.mean(mat, axis=0)
+        standard_mean_raw = np.mean(np.vstack(raw_rows), axis=0)
         if method == "standard":
-            out[group_name] = standard_mean.tolist()
+            out[group_name] = standard_mean_raw.tolist()
             continue
 
         # Inverse averaging (time-aligned) with safe fallback.
@@ -1679,31 +1711,40 @@ def average_group_signals(
                 t_interp_list.append(t_interp)
 
             if not t_interp_list:
-                out[group_name] = standard_mean.tolist()
+                out[group_name] = standard_mean_raw.tolist()
                 continue
 
             t_mean = np.mean(np.vstack(t_interp_list), axis=0)
             t_mean = np.maximum.accumulate(np.array(t_mean, dtype=float))
             if np.any(~np.isfinite(t_mean)):
-                out[group_name] = standard_mean.tolist()
+                out[group_name] = standard_mean_raw.tolist()
                 continue
 
             # np.interp expects ascending x; enforce unique ascending t_mean.
             t_mono, t_idx = np.unique(t_mean, return_index=True)
             y_for_t = y_common[t_idx]
             if len(t_mono) < 2:
-                out[group_name] = standard_mean.tolist()
+                out[group_name] = standard_mean_raw.tolist()
                 continue
 
             y_mean_norm = np.interp(t_axis, t_mono, y_for_t, left=float(y_for_t[0]), right=float(y_for_t[-1]))
             y_final = np.clip(y_mean_norm, 0.0, 1.0)
             if np.any(~np.isfinite(y_final)) or len(y_final) != n_t:
-                out[group_name] = standard_mean.tolist()
+                out[group_name] = standard_mean_raw.tolist()
                 continue
 
-            out[group_name] = y_final.tolist()
+            avg_baseline = float(np.mean(baselines))
+            avg_amp = float(np.mean(amps))
+            if (not np.isfinite(avg_amp)) or abs(avg_amp) < 1e-12:
+                out[group_name] = standard_mean_raw.tolist()
+                continue
+            y_restored = avg_baseline + (y_final * avg_amp)
+            if np.any(~np.isfinite(y_restored)) or len(y_restored) != n_t:
+                out[group_name] = standard_mean_raw.tolist()
+                continue
+            out[group_name] = y_restored.tolist()
         except Exception:
-            out[group_name] = standard_mean.tolist()
+            out[group_name] = standard_mean_raw.tolist()
     return out
 
 
@@ -3375,7 +3416,6 @@ def aggregation_analysis_view(analysis_id):
     plot_header_title = ""
     plot_header_meta = ""
     plot_header_label = ""
-    merged_curves_normalized = False
     if mode == "groups":
         group_name = item_key
         is_all_groups = group_name == "__all_groups__"
@@ -3437,7 +3477,6 @@ def aggregation_analysis_view(analysis_id):
                 return render_template("result.html", error="Inga aggregerande kurvor kunde mergas för vald grupp(er).")
             displayed_series_dict = averaged
             displayed_ids = list(averaged.keys())
-            merged_curves_normalized = True
             if is_all_groups:
                 subtitle = "All groups (merged average curves)"
                 shown_wells = displayed_ids
@@ -3461,7 +3500,7 @@ def aggregation_analysis_view(analysis_id):
                 data["time_sec"],
                 displayed_series_dict,
                 displayed_ids,
-                normalized=(normalize_plot or merged_curves_normalized),
+                normalized=normalize_plot,
                 groups={} if do_merge else {group_name: displayed_ids},
                 time_unit=data.get("time_unit", "hours"),
                 custom_titles=custom_titles,
@@ -3521,6 +3560,21 @@ def aggregation_analysis_view(analysis_id):
             if w not in well_conditions:
                 well_conditions[w] = float(conc)
 
+    # Dynamic predictions: when curves are merged, run ML on merged raw-scale curves.
+    do_merge_active = (mode == "groups" and (item_key in {"__all_groups__", "__selected_groups__"} or merge_group_curves))
+    if do_merge_active:
+        try:
+            _, current_halftimes = predict_well_halftimes(data["time_sec"], displayed_series_dict)
+        except Exception:
+            current_halftimes = {}
+        try:
+            current_sigmoids = predict_well_sigmoid_points(data["time_sec"], displayed_series_dict)
+        except Exception:
+            current_sigmoids = {}
+    else:
+        current_halftimes = data.get("well_halftime", {})
+        current_sigmoids = data.get("sigmoid_preds", {})
+
     global_fit_result = None
     global_fit_error = ""
     if global_fit_enabled:
@@ -3534,11 +3588,10 @@ def aggregation_analysis_view(analysis_id):
                 time_unit=data.get("time_unit", "hours"),
                 well_conditions=well_conditions,
                 n_restarts=global_restarts,
-                well_halftime=data.get("well_halftime", {}),
-                sigmoid_preds=data.get("sigmoid_preds", {}),
+                well_halftime=current_halftimes,
+                sigmoid_preds=current_sigmoids,
                 custom_titles=custom_titles,
                 smart_init_enabled=smart_init_enabled,
-                merged_normalized=bool(mode == "groups" and (item_key in {"__all_groups__", "__selected_groups__"} or merge_group_curves) and merged_curves_normalized),
             )
             # For download button, prefer global fit image when enabled.
             plot_id = generate_global_fit_plot_image(
@@ -3555,12 +3608,12 @@ def aggregation_analysis_view(analysis_id):
         displayed_series_dict,
         displayed_ids,
         data.get("time_unit", "hours"),
-        well_halftime=data.get("well_halftime", {}),
-        sigmoid_preds=data.get("sigmoid_preds", {}),
+        well_halftime=current_halftimes,
+        sigmoid_preds=current_sigmoids,
         show_halftime=show_halftime,
         show_baseline=show_baseline,
         show_plateau=show_plateau,
-        normalized=(normalize_plot or merged_curves_normalized),
+        normalized=normalize_plot,
     )
     if global_fit_result:
         gf_preds = global_fit_result.get("model_predictions", {}) or {}
@@ -3578,7 +3631,7 @@ def aggregation_analysis_view(analysis_id):
                 y_max = float(np.max(y_raw))
                 y_scale = (y_max - y_min) if (y_max - y_min) != 0 else 1.0
                 if len(pred_raw) > 0:
-                    norm_preds[wid] = [float((v - y_min) / y_scale) for v in pred_raw]
+                    norm_preds[wid] = [float(np.clip((v - y_min) / y_scale, 0.0, 1.0)) for v in pred_raw]
                 if len(res_raw) > 0:
                     norm_res[wid] = [float(v / y_scale) for v in res_raw]
             gf_preds = norm_preds
