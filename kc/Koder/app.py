@@ -1250,20 +1250,12 @@ def _global_fit_model_norm(t, log_params, cond):
     # Global combined rate constants in log-space.
     kn_plus = float(np.exp(log_params[0]))   # k_n * k_+
     k2_plus = float(np.exp(log_params[1]))   # k_2 * k_+
-    km_sat = float(np.exp(log_params[4]))    # saturation constant (Michaelis-Menten-like)
 
     m0 = max(1e-12, float(cond))
-    nc = float(log_params[2])
-    n2 = float(log_params[3])
+    nc = 2.0
+    n2 = 2.0
 
-    # Safe power evaluation in log-domain to avoid overflow for large n2/conc.
-    log_m0 = math.log(max(1e-24, m0))
-    m0_pow_n2 = float(np.exp(np.clip(n2 * log_m0, -700.0, 700.0)))
-    sec_term = float(np.exp(np.clip((n2 + 1.0) * log_m0, -700.0, 700.0)))
-    sat_den = 1.0 + (m0_pow_n2 / max(1e-24, km_sat))
-    sec_eff = sec_term / max(1e-24, sat_den)
-
-    kappa = np.sqrt(max(1e-24, 2.0 * k2_plus * sec_eff))
+    kappa = np.sqrt(max(1e-24, 2.0 * k2_plus * (m0 ** (n2 + 1.0))))
     lambda_ = np.sqrt(max(1e-24, 2.0 * kn_plus * (m0 ** (nc + 1.0))))
     C = (lambda_ ** 2) / max(1e-24, 2.0 * (kappa ** 2))
 
@@ -1286,7 +1278,6 @@ def run_global_fit(
     well_halftime=None,
     sigmoid_preds=None,
     custom_titles=None,
-    smart_init_enabled=False,
 ):
     x = np.array(time_axis_from_seconds(time_sec, time_unit), dtype=float)
     if len(x) < 3:
@@ -1367,7 +1358,6 @@ def run_global_fit(
             plateau = p_fb if plateau is None else plateau
 
         baseline = float(baseline)
-        baseline = max(0.0, baseline)
         plateau = float(plateau)
         amp = float(plateau - baseline)
         if not np.isfinite(amp) or abs(amp) < 1e-9:
@@ -1399,72 +1389,15 @@ def run_global_fit(
             loss += float(np.sum(r * r)) / float(max(1, d["N"]))
         return float(loss)
 
-    guess_nc = 2.0
-    guess_n2 = 2.0
-    if smart_init_enabled:
-        log_conds = []
-        log_halftimes = []
-        for d in datasets:
-            cond = float(d.get("cond", 0.0))
-            t_h = well_halftime.get(d["well"]) if isinstance(well_halftime, dict) else None
-            if t_h is None:
-                # Robust fallback for merged/synthetic curve IDs where ML t1/2 may be missing:
-                # use x at half-level of this curve (baseline + 0.5 * amp).
-                try:
-                    x_arr = np.array(d["x"], dtype=float)
-                    y_arr = np.array(d["y"], dtype=float)
-                    if len(x_arr) == len(y_arr) and len(x_arr) >= 2:
-                        y_half = float(d["baseline"]) + 0.5 * float(d["amp"])
-                        t_h = float(np.interp(y_half, np.maximum.accumulate(y_arr), x_arr))
-                        if (not np.isfinite(t_h)) or t_h <= 0:
-                            # Fallback using nearest observed point to half-level.
-                            idx_h = int(np.argmin(np.abs(y_arr - y_half)))
-                            t_h = float(x_arr[idx_h])
-                except Exception:
-                    t_h = None
-            if cond > 0 and t_h is not None and float(t_h) > 0:
-                log_conds.append(float(np.log(cond)))
-                log_halftimes.append(float(np.log(float(t_h))))
-        if len(log_conds) >= 2:
-            try:
-                gamma = float(np.polyfit(np.array(log_conds), np.array(log_halftimes), 1)[0])
-                if np.isfinite(gamma):
-                    guess_n2 = float(np.clip(-2.0 * gamma - 1.0, 0.5, 5.0))
-            except Exception:
-                pass
-
-    cond_vals = [float(d.get("cond", 0.0)) for d in datasets if float(d.get("cond", 0.0)) > 0.0]
-    median_cond = float(np.median(cond_vals)) if cond_vals else 1.0
-    guess_log_km = float(guess_n2 * np.log(max(1e-12, median_cond)))
-    guess_log_km = float(np.clip(guess_log_km, -10.0, 25.0))
-
-    bounds = [(-30.0, 10.0), (-30.0, 10.0), (0.1, 6.0), (0.1, 6.0), (-10.0, 25.0)]
+    bounds = [(-24.0, 8.0), (-24.0, 8.0)]
     rng = np.random.default_rng(42)
-    starts = [np.array([np.log(1e-6), np.log(1e-4), guess_nc, guess_n2, guess_log_km], dtype=float)]
-    if smart_init_enabled:
-        # Extra smart seeds with varied rate constants so Smart Init is not tied to one rate guess.
-        starts.extend(
-            [
-                np.array([np.log(1e-7), np.log(1e-5), guess_nc, guess_n2, guess_log_km], dtype=float),
-                np.array([np.log(1e-5), np.log(1e-3), guess_nc, guess_n2, guess_log_km], dtype=float),
-            ]
-        )
+    starts = [np.array([np.log(1e-6), np.log(1e-4)], dtype=float)]
     for _ in range(max(1, int(n_restarts)) - 1):
-        if smart_init_enabled:
-            start_n2 = max(0.5, rng.normal(guess_n2, 0.3))
-            start_n2 = float(min(6.0, start_n2))
-            start_km = float(np.clip(rng.normal(guess_log_km, 1.0), -10.0, 25.0))
-        else:
-            start_n2 = float(rng.uniform(0.5, 4.5))
-            start_km = float(np.clip(rng.uniform(0.0, 15.0), -10.0, 25.0))
         starts.append(
             np.array(
                 [
                     np.log(10 ** rng.uniform(-9.0, -1.0)),
                     np.log(10 ** rng.uniform(-8.0, 0.0)),
-                    rng.uniform(0.5, 4.5),
-                    start_n2,
-                    start_km,
                 ],
                 dtype=float,
             )
@@ -1498,10 +1431,6 @@ def run_global_fit(
         "log_k2_plus": float(best_lp[1]),
         "kn_plus": float(np.exp(best_lp[0])),
         "k2_plus": float(np.exp(best_lp[1])),
-        "nc": float(best_lp[2]),
-        "n2": float(best_lp[3]),
-        "log_km_sat": float(best_lp[4]),
-        "km_sat": float(np.exp(best_lp[4])),
     }
 
     model_predictions = {}
@@ -1529,7 +1458,6 @@ def run_global_fit(
         "loss": float(best_loss),
         "wells": [d["well"] for d in datasets],
         "custom_titles": custom_titles or {},
-        "smart_init_enabled": bool(smart_init_enabled),
     }
 
 
@@ -1572,8 +1500,6 @@ def generate_global_fit_plot_image(global_fit_result, selected_wells, time_unit=
     default_title = (
         "Global fitting overlay\n"
         f"kn_plus={bp.get('kn_plus', np.nan):.3g}, k2_plus={bp.get('k2_plus', np.nan):.3g}, "
-        f"nc={bp.get('nc', np.nan):.3g}, n2={bp.get('n2', np.nan):.3g}, "
-        f"km_sat={bp.get('km_sat', np.nan):.3g}, "
         f"RMSE={global_fit_result.get('fit_error', np.nan):.3g}"
     )
     default_x = f"Time ({unit_suffix(time_unit)})"
@@ -1727,7 +1653,11 @@ def average_group_signals(
                 out[group_name] = standard_mean_raw.tolist()
                 continue
 
-            y_mean_norm = np.interp(t_axis, t_mono, y_for_t, left=float(y_for_t[0]), right=float(y_for_t[-1]))
+            std_norm = np.mean(np.vstack(norm_rows), axis=0)
+            y_mean_norm = np.interp(t_axis, t_mono, y_for_t, left=np.nan, right=np.nan)
+            mask_nan = np.isnan(y_mean_norm)
+            if np.any(mask_nan):
+                y_mean_norm[mask_nan] = std_norm[mask_nan]
             y_final = np.clip(y_mean_norm, 0.0, 1.0)
             if np.any(~np.isfinite(y_final)) or len(y_final) != n_t:
                 out[group_name] = standard_mean_raw.tolist()
@@ -3348,7 +3278,6 @@ def aggregation_analysis_view(analysis_id):
     show_plateau = as_bool(request.args.get("show_plateau", "0"))
     normalize_plot = as_bool(request.args.get("normalize_plot", "0"))
     global_fit_enabled = as_bool(request.args.get("global_fit", "0"))
-    smart_init_enabled = as_bool(request.args.get("smart_init", "0"))
     show_residuals = as_bool(request.args.get("show_residuals", "0"))
     merge_group_curves = as_bool(request.args.get("merge_group_curves", "0"))
     merge_method = (request.args.get("merge_method", "inverse") or "inverse").strip().lower()
@@ -3591,7 +3520,6 @@ def aggregation_analysis_view(analysis_id):
                 well_halftime=current_halftimes,
                 sigmoid_preds=current_sigmoids,
                 custom_titles=custom_titles,
-                smart_init_enabled=smart_init_enabled,
             )
             # For download button, prefer global fit image when enabled.
             plot_id = generate_global_fit_plot_image(
@@ -3671,7 +3599,6 @@ def aggregation_analysis_view(analysis_id):
         normalize_plot=normalize_plot,
         global_fit=global_fit_enabled,
         show_residuals=show_residuals,
-        smart_init=smart_init_enabled,
         merge_group_curves=merge_group_curves,
         merge_method=merge_method,
         global_restarts=global_restarts,

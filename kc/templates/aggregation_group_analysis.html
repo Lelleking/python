@@ -280,10 +280,6 @@
                         <input type="checkbox" name="global_fit" value="1" {% if global_fit %}checked{% endif %}>
                     </label>
                     <label class="global-field">
-                        <span>ML Smart Init</span>
-                        <input type="checkbox" name="smart_init" value="1" {% if smart_init %}checked{% endif %}>
-                    </label>
-                    <label class="global-field">
                         <span>Show residuals</span>
                         <input type="checkbox" name="show_residuals" value="1" {% if show_residuals %}checked{% endif %}>
                     </label>
@@ -308,9 +304,6 @@
                         <div><strong>Global fit</strong></div>
                         <div>kn_plus = {{ "%.4g"|format(global_fit_result.best_params.kn_plus) }}</div>
                         <div>k2_plus = {{ "%.4g"|format(global_fit_result.best_params.k2_plus) }}</div>
-                        <div>nc = {{ "%.4g"|format(global_fit_result.best_params.nc) }}</div>
-                        <div>n2 = {{ "%.4g"|format(global_fit_result.best_params.n2) }}</div>
-                        <div>km_sat = {{ "%.4g"|format(global_fit_result.best_params.km_sat) }}</div>
                         <div>RMSE = {{ "%.4g"|format(global_fit_result.fit_error) }}</div>
                     </div>
                     {% elif global_fit_error %}
@@ -338,7 +331,7 @@
 
     <div class="plot-nav-layout">
         {% if has_prev %}
-        <a class="nav-arrow nav-left" href="{{ url_for('aggregation_analysis_view', analysis_id=analysis_id, mode=current_mode, item=prev_item, show_halftime=(1 if show_halftime else 0), show_baseline=(1 if show_baseline else 0), show_plateau=(1 if show_plateau else 0), normalize_plot=(1 if normalize_plot else 0), global_fit=(1 if global_fit else 0), smart_init=(1 if smart_init else 0), show_residuals=(1 if show_residuals else 0), merge_group_curves=(1 if merge_group_curves else 0), merge_method=merge_method, global_restarts=global_restarts, select_representative=(1 if select_representative else 0), rep_merge_only=(1 if rep_merge_only else 0), rep_count=rep_count, rep_groups=rep_groups_query, item_groups=item_groups_selected, custom_x_label=(custom_titles.x if custom_titles else ''), custom_y_label=(custom_titles.y if custom_titles else ''), custom_plot_title=(custom_titles.title if custom_titles else '')) }}" aria-label="Previous">&#8592;</a>
+        <a class="nav-arrow nav-left" href="{{ url_for('aggregation_analysis_view', analysis_id=analysis_id, mode=current_mode, item=prev_item, show_halftime=(1 if show_halftime else 0), show_baseline=(1 if show_baseline else 0), show_plateau=(1 if show_plateau else 0), normalize_plot=(1 if normalize_plot else 0), global_fit=(1 if global_fit else 0), show_residuals=(1 if show_residuals else 0), merge_group_curves=(1 if merge_group_curves else 0), merge_method=merge_method, global_restarts=global_restarts, select_representative=(1 if select_representative else 0), rep_merge_only=(1 if rep_merge_only else 0), rep_count=rep_count, rep_groups=rep_groups_query, item_groups=item_groups_selected, custom_x_label=(custom_titles.x if custom_titles else ''), custom_y_label=(custom_titles.y if custom_titles else ''), custom_plot_title=(custom_titles.title if custom_titles else '')) }}" aria-label="Previous">&#8592;</a>
         {% else %}
         <span class="nav-arrow nav-left nav-disabled" aria-hidden="true">&#8592;</span>
         {% endif %}
@@ -353,7 +346,7 @@
         {% endif %}
 
         {% if has_next %}
-        <a class="nav-arrow nav-right" href="{{ url_for('aggregation_analysis_view', analysis_id=analysis_id, mode=current_mode, item=next_item, show_halftime=(1 if show_halftime else 0), show_baseline=(1 if show_baseline else 0), show_plateau=(1 if show_plateau else 0), normalize_plot=(1 if normalize_plot else 0), global_fit=(1 if global_fit else 0), smart_init=(1 if smart_init else 0), show_residuals=(1 if show_residuals else 0), merge_group_curves=(1 if merge_group_curves else 0), merge_method=merge_method, global_restarts=global_restarts, select_representative=(1 if select_representative else 0), rep_merge_only=(1 if rep_merge_only else 0), rep_count=rep_count, rep_groups=rep_groups_query, item_groups=item_groups_selected, custom_x_label=(custom_titles.x if custom_titles else ''), custom_y_label=(custom_titles.y if custom_titles else ''), custom_plot_title=(custom_titles.title if custom_titles else '')) }}" aria-label="Next">&#8594;</a>
+        <a class="nav-arrow nav-right" href="{{ url_for('aggregation_analysis_view', analysis_id=analysis_id, mode=current_mode, item=next_item, show_halftime=(1 if show_halftime else 0), show_baseline=(1 if show_baseline else 0), show_plateau=(1 if show_plateau else 0), normalize_plot=(1 if normalize_plot else 0), global_fit=(1 if global_fit else 0), show_residuals=(1 if show_residuals else 0), merge_group_curves=(1 if merge_group_curves else 0), merge_method=merge_method, global_restarts=global_restarts, select_representative=(1 if select_representative else 0), rep_merge_only=(1 if rep_merge_only else 0), rep_count=rep_count, rep_groups=rep_groups_query, item_groups=item_groups_selected, custom_x_label=(custom_titles.x if custom_titles else ''), custom_y_label=(custom_titles.y if custom_titles else ''), custom_plot_title=(custom_titles.title if custom_titles else '')) }}" aria-label="Next">&#8594;</a>
         {% else %}
         <span class="nav-arrow nav-right nav-disabled" aria-hidden="true">&#8594;</span>
         {% endif %}
