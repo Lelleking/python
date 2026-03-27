@@ -676,6 +676,79 @@
             flex-wrap: wrap;
             margin-bottom: 12px;
         }
+        /* Floating plot button + options panel */
+        #po-fab-wrap {
+            display: none;
+            position: fixed;
+            bottom: 24px;
+            right: 28px;
+            z-index: 4000;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+        }
+        #po-fab-wrap.visible { display: flex; }
+        #po-plot-fab-btn {
+            background: #0f766e;
+            font-size: 0.92rem;
+            font-weight: 700;
+            padding: 10px 18px;
+            border-radius: 24px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.22);
+            white-space: nowrap;
+        }
+        #po-plot-fab-btn:hover { background: #0d6460; }
+        #po-plot-opts-panel {
+            display: none;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 28px rgba(0,0,0,0.22);
+            padding: 16px 18px 14px;
+            min-width: 280px;
+            max-width: 340px;
+            border: 1px solid #e2e8f0;
+        }
+        #po-plot-opts-panel.visible { display: block; }
+        .po-opts-row {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            margin-bottom: 10px;
+        }
+        .po-opts-row label { font-size: 0.78rem; color: #475569; font-weight: 600; }
+        .po-opts-row input[type=text],
+        .po-opts-row input[type=number],
+        .po-opts-row select {
+            font-size: 0.82rem;
+            padding: 4px 7px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .po-opts-row-inline {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .po-opts-row-inline > * { flex: 1; }
+        .po-opts-title {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 12px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        #po-sel-hint {
+            font-size: 0.8rem;
+            color: #0f766e;
+            background: #f0fdf4;
+            border: 1px solid #86efac;
+            border-radius: 20px;
+            padding: 5px 12px;
+            font-weight: 600;
+        }
         .po-cell {
             /* width is set by table-layout:fixed — no fixed px here */
             height: 62px;
@@ -1412,6 +1485,62 @@
           <div class="po-loading">Loading plate data…</div>
         </div>
       </div>
+    </div>
+
+    <!-- ── Plate overview floating plot button ───────────────────────────── -->
+    <div id="po-fab-wrap">
+        <div id="po-plot-opts-panel">
+            <div class="po-opts-title" id="po-opts-title">Plot options</div>
+            <!-- Aggregation options -->
+            <div id="po-opts-agg-section">
+                <div class="po-opts-row" style="flex-direction:row;align-items:center;gap:8px;margin-bottom:12px;">
+                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:0.82rem;color:#334155;cursor:pointer;">
+                        <input type="checkbox" id="po-opts-normalized"> Normalized curves
+                    </label>
+                </div>
+                <div class="po-opts-row-inline">
+                    <div class="po-opts-row" style="margin-bottom:0;">
+                        <label>X from</label>
+                        <input type="number" id="po-opts-xfrom" placeholder="auto" step="any">
+                    </div>
+                    <div class="po-opts-row" style="margin-bottom:0;">
+                        <label>X to</label>
+                        <input type="number" id="po-opts-xto" placeholder="auto" step="any">
+                    </div>
+                </div>
+            </div>
+            <!-- T-half options -->
+            <div id="po-opts-thalf-section">
+                <div class="po-opts-row">
+                    <label>X-axis scale</label>
+                    <select id="po-opts-thalf-scale">
+                        <option value="linear">Linear</option>
+                        <option value="log">Logarithmic</option>
+                    </select>
+                </div>
+            </div>
+            <!-- Shared title options -->
+            <div class="po-opts-row">
+                <label>Plot title</label>
+                <input type="text" id="po-opts-plot-title" placeholder="(auto)">
+            </div>
+            <div class="po-opts-row">
+                <label>X-axis title</label>
+                <input type="text" id="po-opts-x-title" placeholder="(auto)">
+            </div>
+            <div class="po-opts-row" style="margin-bottom:14px;">
+                <label>Y-axis title</label>
+                <input type="text" id="po-opts-y-title" placeholder="(auto)">
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button type="button" id="po-opts-cancel-btn" style="background:#475569;">Cancel</button>
+                <button type="button" id="po-opts-generate-btn" style="background:#0f766e;">Generate plot</button>
+            </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;justify-content:flex-end;">
+            <span id="po-sel-hint">Click wells to select them for plotting</span>
+            <button type="button" id="po-plot-fab-btn">Plot selected curves</button>
+        </div>
     </div>
 
     <!-- ── Chromatic selection modal ──────────────────────────────────────── -->
@@ -3281,6 +3410,23 @@
             const basePoInfo = `${data.n_files} file(s) | chromatic ${data.chromatic}`;
             let poActionMode = "";
 
+            // FAB elements (outside renderPlateOvContent scope, persistent)
+            const poFabWrap       = document.getElementById("po-fab-wrap");
+            const poFabBtn        = document.getElementById("po-plot-fab-btn");
+            const poOptsPanel     = document.getElementById("po-plot-opts-panel");
+            const poOptsTitle     = document.getElementById("po-opts-title");
+            const poOptsAggSec    = document.getElementById("po-opts-agg-section");
+            const poOptsThalfSec  = document.getElementById("po-opts-thalf-section");
+            const poOptsGenBtn    = document.getElementById("po-opts-generate-btn");
+            const poOptsCancelBtn = document.getElementById("po-opts-cancel-btn");
+            const poOptsNorm      = document.getElementById("po-opts-normalized");
+            const poOptsXFrom     = document.getElementById("po-opts-xfrom");
+            const poOptsXTo       = document.getElementById("po-opts-xto");
+            const poOptsThalfScale = document.getElementById("po-opts-thalf-scale");
+            const poOptsPlotTitle = document.getElementById("po-opts-plot-title");
+            const poOptsXTitle    = document.getElementById("po-opts-x-title");
+            const poOptsYTitle    = document.getElementById("po-opts-y-title");
+
             function poActionLabel(key) {
                 if (key === "agg") return "Plot aggregation curves";
                 if (key === "thalf") return "Plot t½ vs conc";
@@ -3290,8 +3436,13 @@
 
             function refreshPoInfo() {
                 if (!poInfoBar) return;
-                const modePart = poActionMode ? ` | selecting wells for ${poActionLabel(poActionMode)} (${poSelection.size})` : "";
-                poInfoBar.textContent = `${basePoInfo}${modePart}`;
+                if (poActionMode === "agg" || poActionMode === "thalf") {
+                    poInfoBar.textContent = `${basePoInfo} · ${poSelection.size} well${poSelection.size !== 1 ? "s" : ""} selected`;
+                } else if (poActionMode === "correct_pred") {
+                    poInfoBar.textContent = `${basePoInfo} | click a well to correct its prediction`;
+                } else {
+                    poInfoBar.textContent = basePoInfo;
+                }
             }
 
             function setPoActionMode(modeKey) {
@@ -3300,6 +3451,14 @@
                     if (!btn) return;
                     btn.classList.toggle("po-action-armed", key === poActionMode);
                 });
+                // Show/hide FAB
+                const showFab = (poActionMode === "agg" || poActionMode === "thalf");
+                if (poFabWrap) poFabWrap.classList.toggle("visible", showFab);
+                if (!showFab && poOptsPanel) poOptsPanel.classList.remove("visible");
+                // Show/hide options sections
+                if (poOptsAggSec)   poOptsAggSec.style.display   = (poActionMode === "agg")   ? "" : "none";
+                if (poOptsThalfSec) poOptsThalfSec.style.display = (poActionMode === "thalf") ? "" : "none";
+                if (poOptsTitle) poOptsTitle.textContent = poActionMode === "agg" ? "Aggregation curve options" : "t½ vs conc options";
                 refreshPoInfo();
             }
 
@@ -3742,53 +3901,85 @@
                 return out;
             }
 
-            function armOrRunAction(actionKey, runFn) {
+            function armAction(actionKey) {
                 if (poDrawMode) {
                     window.alert("Turn off grouping mode first.");
                     return;
                 }
-                if (poActionMode !== actionKey) {
+                if (poActionMode === actionKey) {
+                    // Toggle off
+                    setPoActionMode("");
                     poSelection.clear();
                     reRenderAllCells();
-                    setPoActionMode(actionKey);
                     return;
                 }
-                runFn();
+                poSelection.clear();
+                reRenderAllCells();
+                setPoActionMode(actionKey);
             }
 
-            actionBtns.agg?.addEventListener("click", function() {
-                armOrRunAction("agg", function() {
-                    const wells = poGetSelectedOrGroupedWells();
-                    if (!wells.length) {
-                        window.alert("Select at least one well.");
-                        return;
-                    }
-                    poPostForm("/plot/render", {
-                        dataset_id: data.plate_session_id,
-                        groups_json: JSON.stringify(poGroups),
-                        wells: wells,
-                        normalized_curve: (normalizedCb && normalizedCb.checked) ? "1" : "0",
-                    });
-                    setPoActionMode("");
-                });
-            });
+            function runPlotAgg() {
+                const wells = poGetSelectedOrGroupedWells();
+                if (!wells.length) { window.alert("Select at least one well."); return; }
+                const norm = poOptsNorm ? (poOptsNorm.checked ? "1" : "0") : "0";
+                const xFrom = poOptsXFrom?.value.trim() || "";
+                const xTo   = poOptsXTo?.value.trim() || "";
+                const fields = {
+                    dataset_id: data.plate_session_id,
+                    groups_json: JSON.stringify(poGroups),
+                    wells: wells,
+                    normalized_curve: norm,
+                    custom_plot_title: poOptsPlotTitle?.value.trim() || "",
+                    custom_x_label:    poOptsXTitle?.value.trim() || "",
+                    custom_y_label:    poOptsYTitle?.value.trim() || "",
+                };
+                if (xFrom !== "") fields.x_from = xFrom;
+                if (xTo   !== "") fields.x_to   = xTo;
+                poPostForm("/plot/render", fields);
+                setPoActionMode("");
+                poOptsPanel?.classList.remove("visible");
+            }
 
-            actionBtns.thalf?.addEventListener("click", function() {
-                armOrRunAction("thalf", function() {
-                    const selected = Array.from(poSelection).sort();
-                    const groupsPayload = groupsFilteredBySelection(poGroups, selected);
-                    if (selected.length && !Object.keys(groupsPayload).length) {
-                        window.alert("Selected wells are not part of any saved group.");
-                        return;
-                    }
-                    const scale = (poThalfScaleSelect && poThalfScaleSelect.value === "log") ? "log" : "linear";
-                    poPostForm(`/plot/thalf?scale=${scale}`, {
-                        thalf_session_id: data.thalf_session_id,
-                        thalf_groups_json: JSON.stringify(groupsPayload),
-                    });
-                    setPoActionMode("");
+            function runPlotThalf() {
+                const selected = Array.from(poSelection).sort();
+                const groupsPayload = groupsFilteredBySelection(poGroups, selected);
+                if (selected.length && !Object.keys(groupsPayload).length) {
+                    window.alert("Selected wells are not part of any saved group.");
+                    return;
+                }
+                const scale = poOptsThalfScale?.value === "log" ? "log" : "linear";
+                poPostForm(`/plot/thalf?scale=${scale}`, {
+                    thalf_session_id: data.thalf_session_id,
+                    thalf_groups_json: JSON.stringify(groupsPayload),
+                    custom_plot_title: poOptsPlotTitle?.value.trim() || "",
+                    custom_x_label:    poOptsXTitle?.value.trim() || "",
+                    custom_y_label:    poOptsYTitle?.value.trim() || "",
                 });
-            });
+                setPoActionMode("");
+                poOptsPanel?.classList.remove("visible");
+            }
+
+            // Wire FAB button
+            if (poFabBtn) {
+                poFabBtn.addEventListener("click", function() {
+                    if (!poOptsPanel) return;
+                    poOptsPanel.classList.toggle("visible");
+                });
+            }
+            if (poOptsGenBtn) {
+                poOptsGenBtn.addEventListener("click", function() {
+                    if (poActionMode === "agg") runPlotAgg();
+                    else if (poActionMode === "thalf") runPlotThalf();
+                });
+            }
+            if (poOptsCancelBtn) {
+                poOptsCancelBtn.addEventListener("click", function() {
+                    poOptsPanel?.classList.remove("visible");
+                });
+            }
+
+            actionBtns.agg?.addEventListener("click", function() { armAction("agg"); });
+            actionBtns.thalf?.addEventListener("click", function() { armAction("thalf"); });
 
             actionBtns.correct_pred?.addEventListener("click", function() {
                 if (poDrawMode) {
@@ -3833,6 +4024,9 @@
                 poGroups = {};
                 poSelection = new Set();
                 poDrawMode = false;
+                // Hide FAB on fresh open
+                const fab = document.getElementById("po-fab-wrap");
+                if (fab) fab.classList.remove("visible");
                 // Show modal with loading state
                 if (poContent) poContent.innerHTML = '<div class="po-loading">Loading plate data…</div>';
                 poModal.classList.add("show");
@@ -3856,20 +4050,21 @@
         }
 
         // Close button
+        function closePoModal() {
+            if (poModal) {
+                poModal.classList.remove("show");
+                poModal.setAttribute("aria-hidden", "true");
+            }
+            // Hide FAB when modal closes
+            const fab = document.getElementById("po-fab-wrap");
+            if (fab) fab.classList.remove("visible");
+        }
         if (closePoBtn) {
-            closePoBtn.addEventListener("click", function() {
-                if (poModal) {
-                    poModal.classList.remove("show");
-                    poModal.setAttribute("aria-hidden", "true");
-                }
-            });
+            closePoBtn.addEventListener("click", closePoModal);
         }
         if (poModal) {
             poModal.addEventListener("click", function(evt) {
-                if (evt.target === poModal) {
-                    poModal.classList.remove("show");
-                    poModal.setAttribute("aria-hidden", "true");
-                }
+                if (evt.target === poModal) closePoModal();
             });
         }
     })();
