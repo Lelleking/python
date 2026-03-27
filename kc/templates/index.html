@@ -3367,12 +3367,7 @@
                     <div class="po-feature-tabs" id="po-feature-tabs"></div>
                     <button type="button" id="po-add-feature-btn">+ Add const value</button>
                     <div class="po-add-feature-inline" id="po-add-feature-form" style="display:none;">
-                        <select id="po-new-feature-select" style="font-size:0.8rem;padding:3px 7px;border:1px solid #cbd5e1;border-radius:6px;">
-                            <option value="m0">m0</option>
-                            <option value="seed concentration">seed concentration</option>
-                            <option value="__custom__">Custom…</option>
-                        </select>
-                        <input type="text" id="po-new-feature-input" placeholder="name" style="display:none;max-width:130px;">
+                        <input type="text" id="po-new-feature-input" placeholder="feature name" style="max-width:150px;">
                         <button type="button" id="po-new-feature-confirm" style="background:#1d4ed8;font-size:0.78rem;padding:3px 9px;">Create</button>
                         <button type="button" id="po-new-feature-cancel" style="background:#475569;font-size:0.78rem;padding:3px 7px;">✕</button>
                     </div>
@@ -3389,10 +3384,17 @@
                             <input type="radio" name="po-unit-type" value="M" checked> M
                         </label>
                         <select id="po-m-prefix" style="font-size:0.78rem;padding:2px 5px;border:1px solid #cbd5e1;border-radius:5px;">
-                            <option value="µ">µ (micro)</option>
-                            <option value="m">m (milli)</option>
-                            <option value="">(none)</option>
+                            <option value="T">T (tera)</option>
+                            <option value="G">G (giga)</option>
+                            <option value="M">M (mega)</option>
                             <option value="k">k (kilo)</option>
+                            <option value="" selected>(none) — M</option>
+                            <option value="m">m (milli)</option>
+                            <option value="µ">µ (micro)</option>
+                            <option value="n">n (nano)</option>
+                            <option value="p">p (pico)</option>
+                            <option value="f">f (femto)</option>
+                            <option value="a">a (atto)</option>
                         </select>
                         <label style="font-size:0.78rem;display:flex;align-items:center;gap:3px;cursor:pointer;">
                             <input type="radio" name="po-unit-type" value="%"> %
@@ -3459,8 +3461,8 @@
                 const tabsEl = document.getElementById("po-feature-tabs");
                 if (!tabsEl) return;
                 tabsEl.innerHTML = "";
-                // Default "Groups" tab
-                const allFeatures = ["", ...Object.keys(poFeatures)];
+                // Default "group" tab + user-defined features (exclude internal __default__)
+                const allFeatures = ["", ...Object.keys(poFeatures).filter(k => k !== "__default__")];
                 allFeatures.forEach(fname => {
                     const btn = document.createElement("button");
                     btn.type = "button";
@@ -3483,9 +3485,18 @@
             }
 
             function updateMPrefixVisibility() {
-                const mRadio = document.querySelector('input[name="po-unit-type"][value="M"]');
-                const mPrefix = document.getElementById("po-m-prefix");
+                const mRadio  = document.querySelector('input[name="po-unit-type"][value="M"]');
+                const pctRadio = document.querySelector('input[name="po-unit-type"][value="%"]');
+                const mPrefix  = document.getElementById("po-m-prefix");
+                const numInput = document.getElementById("po-const-number-input");
                 if (mPrefix) mPrefix.style.display = (mRadio && mRadio.checked) ? "" : "none";
+                if (numInput) {
+                    if (pctRadio && pctRadio.checked) {
+                        numInput.min = "0"; numInput.max = "100";
+                    } else {
+                        numInput.removeAttribute("min"); numInput.removeAttribute("max");
+                    }
+                }
             }
 
             function getConstValueLabel() {
@@ -3500,21 +3511,16 @@
 
             function switchToFeature(fname) {
                 // Save current groups to previous feature
-                if (poActiveFeature === "") {
-                    poFeatures["__default__"] = JSON.parse(JSON.stringify(poGroups));
-                } else {
+                if (poActiveFeature !== "") {
                     poFeatures[poActiveFeature] = JSON.parse(JSON.stringify(poGroups));
                 }
                 // Load new feature's groups
+                Object.keys(poGroups).forEach(k => delete poGroups[k]);
                 if (fname === "") {
-                    const saved = poFeatures["__default__"] || {};
-                    Object.keys(poGroups).forEach(k => delete poGroups[k]);
-                    Object.assign(poGroups, saved);
+                    // default group tab — nothing saved in poFeatures
                 } else {
                     if (!poFeatures[fname]) poFeatures[fname] = {};
-                    const src = poFeatures[fname];
-                    Object.keys(poGroups).forEach(k => delete poGroups[k]);
-                    Object.assign(poGroups, src);
+                    Object.assign(poGroups, poFeatures[fname]);
                 }
                 poActiveFeature = fname;
                 poSelection.clear();
@@ -3531,33 +3537,19 @@
 
             const addFeatureBtn     = document.getElementById("po-add-feature-btn");
             const addFeatureForm    = document.getElementById("po-add-feature-form");
-            const newFeatureSelect  = document.getElementById("po-new-feature-select");
             const newFeatureInput   = document.getElementById("po-new-feature-input");
             const newFeatureConfirm = document.getElementById("po-new-feature-confirm");
             const newFeatureCancel  = document.getElementById("po-new-feature-cancel");
 
             function getNewFeatureName() {
-                if (newFeatureSelect?.value === "__custom__") {
-                    return (newFeatureInput?.value || "").trim();
-                }
-                return newFeatureSelect?.value || "";
+                return (newFeatureInput?.value || "").trim();
             }
 
-            if (newFeatureSelect) {
-                newFeatureSelect.addEventListener("change", function() {
-                    const isCustom = this.value === "__custom__";
-                    if (newFeatureInput) {
-                        newFeatureInput.style.display = isCustom ? "" : "none";
-                        if (isCustom) newFeatureInput.focus();
-                    }
-                });
-            }
             if (addFeatureBtn) {
                 addFeatureBtn.addEventListener("click", function() {
                     const show = addFeatureForm.style.display === "none";
                     addFeatureForm.style.display = show ? "" : "none";
-                    if (show && newFeatureSelect) newFeatureSelect.value = "group";
-                    if (newFeatureInput) newFeatureInput.style.display = "none";
+                    if (show && newFeatureInput) { newFeatureInput.value = ""; newFeatureInput.focus(); }
                 });
             }
             if (newFeatureCancel) {
@@ -4279,6 +4271,8 @@
             openPoBtn.addEventListener("click", async function() {
                 if (!poModal) return;
                 poGroups = {};
+                poFeatures = { "m0": {}, "seed conc": {} };
+                poActiveFeature = "";
                 poSelection = new Set();
                 poDrawMode = false;
                 // Hide FAB on fresh open
