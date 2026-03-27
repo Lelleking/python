@@ -676,6 +676,56 @@
             flex-wrap: wrap;
             margin-bottom: 12px;
         }
+        /* Feature bar */
+        .po-feature-bar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+            padding: 6px 8px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+        }
+        .po-feature-label { font-size: 0.75rem; font-weight: 700; color: #475569; white-space: nowrap; }
+        .po-feature-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+        .po-feature-tab {
+            font-size: 0.78rem;
+            padding: 3px 10px;
+            border-radius: 20px;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #475569;
+            cursor: pointer;
+            transition: background 0.1s, color 0.1s;
+        }
+        .po-feature-tab:hover { background: #e2e8f0; }
+        .po-feature-tab.po-feature-active {
+            background: #1d4ed8;
+            color: #fff;
+            border-color: #1d4ed8;
+            font-weight: 700;
+        }
+        #po-add-feature-btn {
+            font-size: 0.78rem;
+            padding: 3px 10px;
+            border-radius: 20px;
+            background: #475569;
+            margin-left: 4px;
+        }
+        .po-add-feature-inline {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .po-add-feature-inline input {
+            font-size: 0.8rem;
+            padding: 3px 7px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            max-width: 150px;
+        }
         /* Floating plot button + options panel */
         #po-fab-wrap {
             display: none;
@@ -3180,6 +3230,8 @@
         let poSelection = new Set();
         let poDrawMode = false;
         let poDragging = false;
+        let poFeatures = {};        // {featureName: {groupName: [wells]}}
+        let poActiveFeature = "";   // "" = default unlabelled groups
 
         const PO_PALETTE = [
             "#93c5fd","#f9a8d4","#86efac","#fcd34d","#a5b4fc",
@@ -3309,6 +3361,16 @@
             const COLS = 12;
 
             let html = `
+                <div class="po-feature-bar">
+                    <span class="po-feature-label">Feature:</span>
+                    <div class="po-feature-tabs" id="po-feature-tabs"></div>
+                    <button type="button" id="po-add-feature-btn">+ Add feature</button>
+                    <div class="po-add-feature-inline" id="po-add-feature-form" style="display:none;">
+                        <input type="text" id="po-new-feature-input" placeholder="e.g. Temperature">
+                        <button type="button" id="po-new-feature-confirm" style="background:#1d4ed8;font-size:0.78rem;padding:3px 9px;">Create</button>
+                        <button type="button" id="po-new-feature-cancel" style="background:#475569;font-size:0.78rem;padding:3px 7px;">✕</button>
+                    </div>
+                </div>
                 <div class="plate-ov-group-controls">
                     <button type="button" id="po-draw-mode-btn" style="background:#475569;">Grouping mode: OFF</button>
                     <span id="po-group-color-swatch" style="display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid #cbd5e1;vertical-align:middle;margin-left:2px;"></span>
@@ -3383,6 +3445,97 @@
             }
             html += `</tbody></table></div>`;
             container.innerHTML = html;
+
+            // ── Feature system ─────────────────────────────────────────────
+            function renderFeatureTabs() {
+                const tabsEl = document.getElementById("po-feature-tabs");
+                if (!tabsEl) return;
+                tabsEl.innerHTML = "";
+                // Default "Groups" tab
+                const allFeatures = ["", ...Object.keys(poFeatures)];
+                allFeatures.forEach(fname => {
+                    const btn = document.createElement("button");
+                    btn.type = "button";
+                    btn.className = "po-feature-tab" + (fname === poActiveFeature ? " po-feature-active" : "");
+                    btn.textContent = fname === "" ? "Groups" : fname;
+                    btn.dataset.feature = fname;
+                    btn.addEventListener("click", function() { switchToFeature(fname); });
+                    tabsEl.appendChild(btn);
+                });
+            }
+
+            function switchToFeature(fname) {
+                // Save current groups to previous feature
+                if (poActiveFeature === "") {
+                    // store back to default (poGroups is already the live obj)
+                } else {
+                    poFeatures[poActiveFeature] = JSON.parse(JSON.stringify(poGroups));
+                }
+                // Load new feature's groups
+                if (fname === "") {
+                    // Restore the original poGroups (or a blank one)
+                    const saved = poFeatures["__default__"] || {};
+                    Object.keys(poGroups).forEach(k => delete poGroups[k]);
+                    Object.assign(poGroups, saved);
+                } else {
+                    if (!poFeatures[fname]) poFeatures[fname] = {};
+                    const src = poFeatures[fname];
+                    Object.keys(poGroups).forEach(k => delete poGroups[k]);
+                    Object.assign(poGroups, src);
+                }
+                poActiveFeature = fname;
+                poSelection.clear();
+                reRenderAllCells();
+                poRenderGroupLegend(); updateGroupLabels(); updateGroupColorSwatch();
+                renderFeatureTabs();
+            }
+
+            // Save default groups into poFeatures["__default__"] so they survive feature switches
+            if (!Object.keys(poFeatures).length && !poActiveFeature) {
+                poFeatures["__default__"] = JSON.parse(JSON.stringify(poGroups));
+            }
+
+            const addFeatureBtn   = document.getElementById("po-add-feature-btn");
+            const addFeatureForm  = document.getElementById("po-add-feature-form");
+            const newFeatureInput = document.getElementById("po-new-feature-input");
+            const newFeatureConfirm = document.getElementById("po-new-feature-confirm");
+            const newFeatureCancel  = document.getElementById("po-new-feature-cancel");
+
+            if (addFeatureBtn) {
+                addFeatureBtn.addEventListener("click", function() {
+                    addFeatureForm.style.display = addFeatureForm.style.display === "none" ? "" : "none";
+                    if (newFeatureInput) newFeatureInput.focus();
+                });
+            }
+            if (newFeatureCancel) {
+                newFeatureCancel.addEventListener("click", function() {
+                    addFeatureForm.style.display = "none";
+                    if (newFeatureInput) newFeatureInput.value = "";
+                });
+            }
+            if (newFeatureConfirm) {
+                newFeatureConfirm.addEventListener("click", function() {
+                    const fname = (newFeatureInput?.value || "").trim();
+                    if (!fname) { newFeatureInput?.focus(); return; }
+                    if (fname === "Groups" || fname === "__default__") {
+                        window.alert("Reserved name. Choose a different name.");
+                        return;
+                    }
+                    if (!poFeatures[fname]) poFeatures[fname] = {};
+                    addFeatureForm.style.display = "none";
+                    newFeatureInput.value = "";
+                    switchToFeature(fname);
+                });
+            }
+            if (newFeatureInput) {
+                newFeatureInput.addEventListener("keydown", function(e) {
+                    if (e.key === "Enter") newFeatureConfirm?.click();
+                    if (e.key === "Escape") newFeatureCancel?.click();
+                });
+            }
+
+            renderFeatureTabs();
+            // ── End feature system ─────────────────────────────────────────
 
             const normalizedCb   = document.getElementById("po-normalized-cb");
             const showHalfCb     = document.getElementById("po-show-thalf-cb");
