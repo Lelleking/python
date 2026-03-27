@@ -255,8 +255,10 @@ def load_saved_run_by_id(run_id, expected_user_id=None):
         "filenames": source_files,
         "time_unit": normalize_time_unit(row["time_unit"]),
         "selected_chromatic": payload.get("selected_chromatic"),
+        "available_chromatics": payload.get("available_chromatics", []),
         "time_sec": payload.get("time_sec", []),
         "wells": payload.get("wells", {}),
+        "source_segments": payload.get("source_segments", []),
         "source": "persisted",
         "owner_user_id": int(row["user_id"]),
         "run_id": row["id"],
@@ -344,6 +346,56 @@ def persist_groups_for_run(upload_set_id, groups):
             (json.dumps(payload, ensure_ascii=True), upload_set_id, int(uid)),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def update_minimal_run_dataset(
+    run_id,
+    user_id,
+    source_filenames,
+    selected_chromatic,
+    time_sec,
+    wells,
+    source_segments=None,
+    available_chromatics=None,
+):
+    if not run_id or user_id is None:
+        return False
+    conn = get_db_conn()
+    try:
+        row = conn.execute(
+            "SELECT data_path FROM saved_runs WHERE id = ? AND user_id = ?",
+            (str(run_id), int(user_id)),
+        ).fetchone()
+        if not row:
+            return False
+
+        payload = {
+            "selected_chromatic": str(selected_chromatic),
+            "time_sec": [int(v) for v in list(time_sec or [])],
+            "wells": {k: [int(x) for x in v] for k, v in (wells or {}).items()},
+            "source_segments": source_segments if isinstance(source_segments, list) else [],
+            "available_chromatics": available_chromatics if isinstance(available_chromatics, list) else [],
+        }
+        with gzip.open(row["data_path"], "wt", encoding="utf-8") as f:
+            json.dump(payload, f, separators=(",", ":"))
+
+        conn.execute(
+            """
+            UPDATE saved_runs
+            SET source_files_json = ?, selected_chromatic = ?
+            WHERE id = ? AND user_id = ?
+            """,
+            (
+                json.dumps(list(source_filenames or [])),
+                str(selected_chromatic),
+                str(run_id),
+                int(user_id),
+            ),
+        )
+        conn.commit()
+        return True
     finally:
         conn.close()
 

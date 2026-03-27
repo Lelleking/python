@@ -13,8 +13,11 @@ from data_utils import (
     resolve_upload_set_for_request,
     load_dataset_for_upload_set,
     get_shared_groups,
+    list_chromatics_in_segments,
     build_amylofit_parts,
     build_curve_previews,
+    get_all_chromatics_preview,
+    get_all_chromatics_preview_from_segments,
     sanitize_group_attributes,
     list_group_attribute_names,
 )
@@ -34,9 +37,16 @@ def index():
     current_upload_set_id = session.get("current_upload_set_id", "")
     current_upload_set = get_upload_set(current_upload_set_id)
     current_files = current_upload_set["filenames"] if current_upload_set else []
+    available_chromatics = []
+    current_selected_chromatic = ""
     if user_id is None:
         current_files = []
         current_upload_set_id = ""
+    elif current_upload_set:
+        available_chromatics = current_upload_set.get("available_chromatics", [])
+        if not isinstance(available_chromatics, list) or not available_chromatics:
+            available_chromatics = list_chromatics_in_segments(current_upload_set.get("source_segments", []))
+        current_selected_chromatic = str(current_upload_set.get("selected_chromatic", "") or "")
     current_time_unit = normalize_time_unit(
         (current_upload_set or {}).get("time_unit", session.get("current_time_unit", "hours"))
     )
@@ -65,6 +75,8 @@ def index():
         saved_folders=saved_folders,
         folder_policies=folder_policies,
         current_run_groups=current_run_groups,
+        available_chromatics=available_chromatics,
+        current_selected_chromatic=current_selected_chromatic,
         auth_error=(session.pop("auth_error", "") or ""),
         upload_is_fresh=session.get("upload_is_fresh", False),
     )
@@ -149,18 +161,43 @@ def convert_amylofit():
 
 @main_bp.route("/upload/save_only", methods=["POST"])
 def upload_save_only():
+    upload_files = request.files.getlist("files")
+    upload_files = [f for f in upload_files if f and f.filename]
+    upload_format = (request.form.get("upload_format", "auto") or "auto").strip().lower()
+    if upload_format not in {"auto", "csv", "dat"}:
+        upload_format = "auto"
+    force_chromatic = (request.form.get("force_chromatic", "") or "").strip()
+
+    # Saving fresh uploads must follow chromatic selection step when needed.
+    # If multiple chromatics are detected, require an explicit choice.
+    if upload_files and not force_chromatic:
+        try:
+            preview = get_all_chromatics_preview(upload_files, upload_format=upload_format)
+            available = preview.get("available", []) if isinstance(preview, dict) else []
+            if len(available) > 1:
+                return render_template(
+                    "result.html",
+                    error="Choose a chromatic in the chromatic step before saving files.",
+                )
+            for f in upload_files:
+                try:
+                    f.seek(0)
+                except Exception:
+                    pass
+        except Exception as exc:
+            return render_template("result.html", error=f"Could not validate chromatics before save: {exc}")
+
     try:
         upload_set_id, _ = resolve_upload_set_for_request()
         if upload_set_id:
             session["upload_is_fresh"] = True
-    except Exception:
-        pass
+    except Exception as exc:
+        return render_template("result.html", error=f"Could not save uploaded files: {exc}")
     return redirect(url_for("main_bp.index"))
 
 
 @main_bp.route("/upload/preview_chromatics", methods=["POST"])
 def upload_preview_chromatics():
-    from data_utils import get_all_chromatics_preview
     upload_files = request.files.getlist("files")
     upload_files = [f for f in upload_files if f and f.filename]
     upload_format = (request.form.get("upload_format", "auto") or "auto").strip().lower()
@@ -172,6 +209,30 @@ def upload_preview_chromatics():
 
     try:
         preview = get_all_chromatics_preview(upload_files, upload_format=upload_format)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    return jsonify({"ok": True, **preview})
+
+
+@main_bp.route("/upload/preview_chromatics_session", methods=["POST"])
+def upload_preview_chromatics_session():
+    upload_set_id = (request.form.get("upload_set_id", "") or "").strip()
+    if not upload_set_id:
+        upload_set_id = session.get("current_upload_set_id", "")
+    upload_set = get_upload_set(upload_set_id)
+    if not upload_set:
+        return jsonify({"ok": False, "error": "No active upload session"}), 400
+
+    segments = upload_set.get("source_segments", [])
+    if not isinstance(segments, list) or not segments:
+        return jsonify({"ok": False, "error": "No source segments available for this session"}), 400
+
+    try:
+        preview = get_all_chromatics_preview_from_segments(
+            segments,
+            source_names=upload_set.get("filenames", []),
+        )
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
 

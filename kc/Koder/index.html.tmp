@@ -639,7 +639,7 @@
             background: #fff;
             border-radius: 14px;
             box-shadow: 0 8px 40px rgba(0,0,0,0.28);
-            width: min(1600px, 99vw);
+            width: min(1200px, 98vw);
             padding: 18px 20px 20px;
             position: relative;
         }
@@ -708,7 +708,7 @@
         .po-cell-thalf {
             display: none;
             position: absolute;
-            top: 2px; left: 3px;
+            top: 2px; right: 3px;
             font-size: 0.5rem;
             color: rgba(180,0,0,0.75);
             pointer-events: none;
@@ -722,63 +722,6 @@
         /* table fills container, fixed layout lets cells auto-split remaining width */
         .po-grid-table { border-collapse:collapse; table-layout:fixed; width:100%; }
         .po-grid-wrap { overflow-x:auto; }
-        .po-action-armed {
-            box-shadow: inset 0 0 0 2px #0f172a;
-        }
-        .po-template-preview-shell {
-            overflow-x: auto;
-            border: 1px solid #dbe2ea;
-            border-radius: 10px;
-            background: #ffffff;
-            padding: 0;
-        }
-        .po-template-preview-table {
-            border-collapse: collapse;
-            table-layout: fixed;
-            width: max-content;
-            min-width: 100%;
-            background: #fff;
-        }
-        .po-template-preview-table th {
-            border: 1px solid #e2e8f0;
-            background: #f8fafc;
-            color: #334155;
-            font-size: 0.74rem;
-            font-weight: 700;
-            padding: 6px 5px;
-            text-align: center;
-        }
-        .po-template-preview-table .po-template-preview-row {
-            width: 34px;
-            min-width: 34px;
-            max-width: 34px;
-        }
-        .po-template-preview-cell {
-            width: 116px;
-            min-width: 116px;
-            max-width: 116px;
-            height: 76px;
-            border: 1px solid #e2e8f0;
-            vertical-align: middle;
-            text-align: center;
-            padding: 4px 6px;
-            color: #0f172a;
-            font-size: 0.7rem;
-            font-weight: 700;
-            line-height: 1.1;
-            overflow-wrap: anywhere;
-        }
-        .po-template-preview-cell.po-template-no-data {
-            background: #f8fafc !important;
-            color: #94a3b8;
-        }
-        .po-template-preview-well {
-            display: block;
-            margin-top: 3px;
-            font-size: 0.6rem;
-            color: rgba(15, 23, 42, 0.78);
-            font-weight: 600;
-        }
         .po-settings-bar { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:8px; padding:6px 10px; background:#f1f5f9; border-radius:7px; font-size:0.82rem; }
         .po-group-legend { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; min-height:20px; }
         .po-group-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 7px 2px 5px; border-radius:999px; font-size:0.75rem; border:1px solid #e2e8f0; background:#f8fafc; }
@@ -816,37 +759,20 @@
         }
         .chrom-legend {
             display: flex;
-            flex-direction: column;
-            gap: 4px;
+            flex-wrap: wrap;
+            gap: 8px;
             margin-bottom: 10px;
             padding: 8px 10px;
             background: #f8fafc;
             border: 1px solid #e2e8f0;
             border-radius: 8px;
             font-size: 0.82rem;
+            align-items: center;
         }
         .chrom-legend-item {
-            display: flex;
-            width: 100%;
-            justify-content: space-between;
-            align-items: center;
-            gap: 8px;
-            padding: 4px 0;
-            border-bottom: 1px solid #e2e8f0;
-        }
-        .chrom-legend-item:last-child {
-            border-bottom: none;
-        }
-        .chrom-legend-left {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            cursor: pointer;
-        }
-        .chrom-legend-right {
-            color: #64748b;
-            font-size: 0.78rem;
-            white-space: nowrap;
+            gap: 5px;
         }
         .chrom-swatch {
             width: 22px;
@@ -1004,23 +930,8 @@
             white-space: nowrap;
         }
         /* page body padding for sticky nav */
-        body {
-            padding: 0;
-            max-width: none;
-            margin: 0;
-        }
+        body { padding-top: 0; }
         .site-body { max-width: none; width: 100%; margin: 0; padding: 16px 18px 40px; box-sizing: border-box; }
-
-        /* Keep uploaded-file action controls compact and visible */
-        .current-file-row > form,
-        .current-files-actions > form,
-        .session-chromatic-row > form {
-            background: transparent;
-            border: 0;
-            box-shadow: none;
-            padding: 0;
-            margin: 0;
-        }
     </style>
 </head>
 <body>
@@ -1150,23 +1061,26 @@
             {% endfor %}
         </ul>
         {% if available_chromatics and available_chromatics|length > 1 and upload_set_id %}
-        <details style="margin-bottom:10px;">
-            <summary>Chromatic options</summary>
-            <div class="session-chromatic-row" style="margin-top:8px;">
-                <form action="/files/set_chromatic" method="post" style="margin:0; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                    <input type="hidden" name="upload_set_id" value="{{ upload_set_id }}">
-                    <label for="session-chromatic-select" style="font-size:0.84rem; color:#334155;">Session chromatic</label>
-                    <select id="session-chromatic-select" name="chromatic">
-                        {% for c in available_chromatics %}
-                        <option value="{{ c }}" {% if current_selected_chromatic == c %}selected{% endif %}>Chromatic {{ c }}</option>
-                        {% endfor %}
-                    </select>
-                    <button type="submit" style="background:#1d4ed8;">Use in this session</button>
-                </form>
-                <button type="button" id="session-chromatic-overview-btn" data-upload-set-id="{{ upload_set_id }}" style="background:#334155;">Open chromatic overview</button>
-                <span style="font-size:0.8rem; color:#64748b;">All chromatics are still saved for later use.</span>
-            </div>
-        </details>
+        <div class="session-chromatic-row">
+            <form action="/files/set_chromatic" method="post" style="margin:0; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <input type="hidden" name="upload_set_id" value="{{ upload_set_id }}">
+                <label for="session-chromatic-select" style="font-size:0.84rem; color:#334155;">Session chromatic</label>
+                <select id="session-chromatic-select" name="chromatic">
+                    {% for c in available_chromatics %}
+                    <option value="{{ c }}" {% if current_selected_chromatic == c %}selected{% endif %}>Chromatic {{ c }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" style="background:#1d4ed8;">Use in this session</button>
+            </form>
+            <span style="font-size:0.8rem; color:#64748b;">All chromatics are still saved for later use.</span>
+        </div>
+        {% endif %}
+        {% if user_email and upload_set_id and upload_is_fresh %}
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+            <input type="text" id="save-run-name-input" placeholder="run name (optional)" style="max-width:200px;">
+            <button type="button" id="save-run-btn" style="background:#0f766e;">Save run</button>
+            <span id="save-run-status" style="font-size:0.82rem; color:#0f766e; display:none;">Saved!</span>
+        </div>
         {% endif %}
         {% if upload_is_fresh %}
         <div class="current-files-actions">
@@ -1183,7 +1097,6 @@
     <form id="main-analyze-form" action="/analyze" method="post" enctype="multipart/form-data">
         <input type="hidden" name="upload_set_id" value="{{ upload_set_id or '' }}">
         <input type="hidden" id="forced-chromatic" name="force_chromatic" value="">
-        <input type="hidden" id="keep-only-chromatic" name="keep_only_chromatic" value="">
         <label for="time-unit">Time unit</label>
         <select id="time-unit" name="time_unit">
             <option value="hours" {% if current_time_unit == 'hours' %}selected{% endif %}>Hours</option>
@@ -3021,6 +2934,29 @@
     </script>
 
     <script>
+    // ── Save run ──────────────────────────────────────────────────────────────
+    (function() {
+        const saveRunBtn = document.getElementById("save-run-btn");
+        if (saveRunBtn) {
+            saveRunBtn.addEventListener("click", function() {
+                const name = (document.getElementById("save-run-name-input")?.value || "").trim();
+                const statusEl = document.getElementById("save-run-status");
+                const body = new URLSearchParams();
+                body.set("run_name", name);
+                const uploadSetId = document.querySelector('input[name="upload_set_id"]')?.value || "";
+                body.set("upload_set_id", uploadSetId);
+                fetch("/runs/save_current", { method: "POST", body })
+                    .then(r => r.json())
+                    .then(d => {
+                        if (d.ok && statusEl) {
+                            statusEl.style.display = "";
+                            setTimeout(() => { statusEl.style.display = "none"; }, 3000);
+                        }
+                    }).catch(() => {});
+            });
+        }
+    })();
+
     // ── Plate overview modal ──────────────────────────────────────────────────
     (function() {
         const poModal = document.getElementById("plate-ov-modal");
@@ -3059,22 +2995,17 @@
             return poRowLetter(rowIdx) + String(colIdx + 1).padStart(2, "0");
         }
 
-        function buildMiniSvg(xArr, yArr, tHalf, tHalfY, normalized, showHalftime, color, yMinGlobal, yMaxGlobal) {
+        function buildMiniSvg(xArr, yArr, tHalf, tHalfY, normalized, showHalftime, color) {
             if (!xArr || !xArr.length) return '<svg viewBox="0 0 76 44"></svg>';
             let ys = yArr.slice();
-            let yMin, yMax;
             if (normalized) {
                 const mn = Math.min(...ys), mx = Math.max(...ys);
                 const rng = mx - mn || 1;
                 ys = ys.map(v => (v - mn) / rng);
-                yMin = 0; yMax = 1;
-            } else if (Number.isFinite(yMinGlobal) && Number.isFinite(yMaxGlobal)) {
-                yMin = yMinGlobal; yMax = yMaxGlobal;
-            } else {
-                yMin = Math.min(...ys); yMax = Math.max(...ys);
             }
             const xMin = xArr[0], xMax = xArr[xArr.length - 1];
             const xRng = xMax - xMin || 1;
+            const yMin = Math.min(...ys), yMax = Math.max(...ys);
             const yRng = yMax - yMin || 1;
             const W = 76, H = 44, pad = 2;
             function px(x) { return pad + (x - xMin) / xRng * (W - 2 * pad); }
@@ -3134,7 +3065,7 @@
             });
         }
 
-        function poUpdateCellVisual(cell, well, normalizedCb, showHalfCb, globalYRange) {
+        function poUpdateCellVisual(cell, well, normalizedCb, showHalfCb) {
             if (!poData) return;
             const preview = poData.curve_previews[well];
             const gname = poGetGroupForWell(well);
@@ -3144,15 +3075,12 @@
             // Remove any existing SVG, then insert fresh one
             cell.querySelectorAll("svg").forEach(s => s.remove());
             if (preview) {
-                const isNorm = normalizedCb ? normalizedCb.checked : false;
                 const svgHtml = buildMiniSvg(
                     preview.x, preview.y,
                     preview.t_half, preview.t_half_y,
-                    isNorm,
+                    normalizedCb ? normalizedCb.checked : false,
                     showHalfCb ? showHalfCb.checked : false,
-                    "#2563eb",
-                    isNorm ? null : (globalYRange ? globalYRange.yMin : null),
-                    isNorm ? null : (globalYRange ? globalYRange.yMax : null)
+                    "#2563eb"
                 );
                 cell.insertAdjacentHTML("afterbegin", svgHtml);
             }
@@ -3184,24 +3112,16 @@
                 </div>
                 <div class="po-settings-bar">
                     <strong style="font-size:0.75rem;color:#334155;">Group template:</strong>
-                    <button type="button" id="po-template-tools-toggle" style="margin-left:auto; background:#334155;">Template options</button>
-                    <span id="po-template-status" style="font-size:0.8rem;color:#64748b;"></span>
-                </div>
-                <div id="po-template-tools-wrap" class="po-settings-bar" style="display:none;">
                     <input type="text" id="po-template-name" placeholder="template name" style="max-width:170px;">
                     <button type="button" id="po-template-save" style="background:#0f766e;">Save current groups</button>
                     <select id="po-template-select" style="min-width:180px;"></select>
                     <button type="button" id="po-template-preview" style="background:#334155;">Preview</button>
                     <button type="button" id="po-template-apply" style="background:#1d4ed8;">Apply</button>
-                    <button type="button" id="po-template-stop-preview" style="background:#64748b; display:none;">Stop preview</button>
-                </div>
-                <div id="po-template-preview-wrap" style="display:none; margin:4px 0 8px; border:1px solid #dbe2ea; border-radius:8px; background:#f8fafc; padding:8px;">
-                    <div style="font-size:0.78rem; color:#475569; margin-bottom:6px;">Template preview on plate (not applied)</div>
-                    <div id="po-template-preview-plate"></div>
+                    <span id="po-template-status" style="font-size:0.8rem;color:#64748b;"></span>
                 </div>
                 <div class="po-settings-bar">
                     <strong style="font-size:0.75rem;color:#334155;">Settings:</strong>
-                    <label><input type="checkbox" id="po-normalized-cb"> Per-well scale</label>
+                    <label><input type="checkbox" id="po-normalized-cb"> Normalized curves</label>
                     <label><input type="checkbox" id="po-show-thalf-cb"> Show t½ dot</label>
                     <label><input type="checkbox" id="po-show-labels-cb"> Show well ID</label>
                     <label><input type="checkbox" id="po-show-halftime-cb"> Show t½ value</label>
@@ -3211,15 +3131,9 @@
                 <div id="po-group-legend" class="po-group-legend"></div>
                 <div class="plate-ov-action-bar">
                     <button type="button" id="po-act-agg" style="background:#0891b2;">Plot aggregation curves</button>
-                    <button type="button" id="po-act-thalf" style="background:#0f766e;">Plot t½ vs conc</button>
-                    <label style="display:inline-flex; align-items:center; gap:6px; font-size:0.82rem; color:#334155; background:#f8fafc; border:1px solid #dbe2ea; border-radius:7px; padding:5px 8px;">
-                        x-axis
-                        <select id="po-thalf-scale" style="min-width:118px;">
-                            <option value="linear">conc (linear)</option>
-                            <option value="log">conc (log)</option>
-                        </select>
-                    </label>
-                    <button type="button" id="po-act-correct-pred" style="background:#7c3aed;">Correct predictions</button>
+                    <button type="button" id="po-act-thalf-log" style="background:#2563eb;">Plot t½ vs log(conc)</button>
+                    <button type="button" id="po-act-thalf-lin" style="background:#0f766e;">Plot t½ vs conc</button>
+                    <button type="button" id="po-act-ctrl-ht" style="background:#7c3aed;">Control halftimes</button>
                     <button type="button" id="po-act-gvc" style="background:#ea580c; display:none;">Plot groups vs control</button>
                 </div>
                 <div class="po-grid-wrap">
@@ -3249,6 +3163,10 @@
             html += `</tbody></table></div>`;
             container.innerHTML = html;
 
+            if (poInfoBar) {
+                poInfoBar.textContent = `${data.n_files} file(s) | chromatic ${data.chromatic}`;
+            }
+
             const normalizedCb   = document.getElementById("po-normalized-cb");
             const showHalfCb     = document.getElementById("po-show-thalf-cb");
             const showLabelsCb   = document.getElementById("po-show-labels-cb");
@@ -3257,118 +3175,14 @@
             const poTemplateNameInput = document.getElementById("po-template-name");
             const poTemplateSelect = document.getElementById("po-template-select");
             const poTemplateStatus = document.getElementById("po-template-status");
-            const poTemplateToolsToggle = document.getElementById("po-template-tools-toggle");
-            const poTemplateToolsWrap = document.getElementById("po-template-tools-wrap");
-            const poTemplatePreviewWrap = document.getElementById("po-template-preview-wrap");
-            const poTemplatePreviewPlate = document.getElementById("po-template-preview-plate");
-            const poTemplateStopPreviewBtn = document.getElementById("po-template-stop-preview");
             const drawModeBtn    = document.getElementById("po-draw-mode-btn");
             const gridTable      = document.getElementById("po-grid-table");
-            const poThalfScaleSelect = document.getElementById("po-thalf-scale");
-            const actionBtns = {
-                agg: document.getElementById("po-act-agg"),
-                thalf: document.getElementById("po-act-thalf"),
-                correct_pred: document.getElementById("po-act-correct-pred"),
-            };
-            const basePoInfo = `${data.n_files} file(s) | chromatic ${data.chromatic}`;
-            let poActionMode = "";
-
-            function poActionLabel(key) {
-                if (key === "agg") return "Plot aggregation curves";
-                if (key === "thalf") return "Plot t½ vs conc";
-                if (key === "correct_pred") return "Correct predictions";
-                return "";
-            }
-
-            function refreshPoInfo() {
-                if (!poInfoBar) return;
-                const modePart = poActionMode ? ` | selecting wells for ${poActionLabel(poActionMode)} (${poSelection.size})` : "";
-                poInfoBar.textContent = `${basePoInfo}${modePart}`;
-            }
-
-            function setPoActionMode(modeKey) {
-                poActionMode = modeKey || "";
-                Object.entries(actionBtns).forEach(([key, btn]) => {
-                    if (!btn) return;
-                    btn.classList.toggle("po-action-armed", key === poActionMode);
-                });
-                refreshPoInfo();
-            }
-
-            function openWellDetailedPlot(well) {
-                const form = document.createElement("form");
-                form.method = "POST";
-                form.action = "/plot/from_plate_selection";
-                const add = function(name, value) {
-                    const inp = document.createElement("input");
-                    inp.type = "hidden";
-                    inp.name = name;
-                    inp.value = value;
-                    form.appendChild(inp);
-                };
-                add("wells_json", JSON.stringify([well]));
-                add("normalized_curve", normalizedCb && normalizedCb.checked ? "1" : "0");
-                document.body.appendChild(form);
-                form.submit();
-                document.body.removeChild(form);
-            }
-
-            function startCorrectionForWell(well) {
-                const raw = window.prompt(
-                    `Correct which value for ${well}? Type: halftime, baseline, or plateau.`,
-                    "halftime"
-                );
-                if (raw === null) return;
-                const choice = String(raw || "").trim().toLowerCase();
-                const uploadSetId = document.querySelector('input[name="upload_set_id"]')?.value || "";
-                const timeUnit = document.getElementById("time-unit")?.value || "hours";
-
-                if (choice === "halftime" || choice === "half-time" || choice === "half time") {
-                    poPostForm("/control_halftimes/start", {
-                        thalf_session_id: data.thalf_session_id,
-                        thalf_groups_json: JSON.stringify(poGroups),
-                        preferred_well: well,
-                    }, false);
-                    setPoActionMode("");
-                    return;
-                }
-                if (choice === "baseline" || choice === "plateau") {
-                    poPostForm("/control_sigmoid/start", {
-                        upload_set_id: uploadSetId,
-                        time_unit: timeUnit,
-                        preferred_well: well,
-                    }, false);
-                    setPoActionMode("");
-                    return;
-                }
-                window.alert("Please type halftime, baseline, or plateau.");
-            }
-            refreshPoInfo();
-
-            // Compute global y range across all wells for non-normalized view
-            let globalYRange = null;
-            {
-                let gMin = Number.POSITIVE_INFINITY, gMax = Number.NEGATIVE_INFINITY;
-                (data.all_wells || []).forEach(well => {
-                    const preview = data.curve_previews[well];
-                    if (!preview || !preview.y) return;
-                    preview.y.forEach(v => {
-                        const num = Number(v);
-                        if (!Number.isFinite(num)) return;
-                        if (num < gMin) gMin = num;
-                        if (num > gMax) gMax = num;
-                    });
-                });
-                if (Number.isFinite(gMin) && Number.isFinite(gMax) && gMin !== gMax) {
-                    globalYRange = { yMin: gMin, yMax: gMax };
-                }
-            }
 
             // Render SVGs
             document.querySelectorAll(".po-cell[data-well]").forEach(cell => {
                 const well = cell.dataset.well;
                 if (data.all_wells.includes(well)) {
-                    poUpdateCellVisual(cell, well, normalizedCb, showHalfCb, globalYRange);
+                    poUpdateCellVisual(cell, well, normalizedCb, showHalfCb);
                 }
             });
 
@@ -3377,7 +3191,7 @@
                 document.querySelectorAll(".po-cell[data-well]").forEach(cell => {
                     const well = cell.dataset.well;
                     if (data.all_wells.includes(well)) {
-                        poUpdateCellVisual(cell, well, normalizedCb, showHalfCb, globalYRange);
+                        poUpdateCellVisual(cell, well, normalizedCb, showHalfCb);
                     }
                 });
             }
@@ -3408,68 +3222,6 @@
                 return out;
             }
 
-            function hideTemplatePreview() {
-                if (poTemplatePreviewWrap) poTemplatePreviewWrap.style.display = "none";
-                if (poTemplatePreviewPlate) poTemplatePreviewPlate.innerHTML = "";
-                if (poTemplateStopPreviewBtn) poTemplateStopPreviewBtn.style.display = "none";
-            }
-
-            function setTemplateToolsOpen(open) {
-                if (poTemplateToolsWrap) poTemplateToolsWrap.style.display = open ? "" : "none";
-                if (poTemplateToolsToggle) {
-                    poTemplateToolsToggle.textContent = open ? "Hide template options" : "Template options";
-                }
-            }
-            setTemplateToolsOpen(false);
-
-            function renderTemplatePreviewPlate(groupsDict) {
-                if (!poTemplatePreviewPlate) return;
-                const wellToGroup = {};
-                Object.entries(groupsDict || {}).forEach(([gname, ws], idx) => {
-                    (Array.isArray(ws) ? ws : []).forEach(well => {
-                        if (data.all_wells.includes(well)) {
-                            wellToGroup[well] = { name: gname, idx };
-                        }
-                    });
-                });
-
-                let previewHtml = '<div class="po-template-preview-shell"><table class="po-template-preview-table">';
-                previewHtml += '<thead><tr><th class="po-template-preview-row"></th>';
-                for (let c = 0; c < COLS; c++) {
-                    previewHtml += `<th>${String(c + 1).padStart(2, "0")}</th>`;
-                }
-                previewHtml += "</tr></thead><tbody>";
-                for (let r = 0; r < ROWS.length; r++) {
-                    previewHtml += `<tr><th class="po-template-preview-row">${ROWS[r]}</th>`;
-                    for (let c = 0; c < COLS; c++) {
-                        const well = ROWS[r] + String(c + 1).padStart(2, "0");
-                        const grp = wellToGroup[well] || null;
-                        const hasData = data.all_wells.includes(well);
-                        const cellBg = grp ? poGroupColor(grp.idx) : (hasData ? "#ffffff" : "#f1f5f9");
-                        const cellTitle = grp ? `${well} — ${grp.name}` : (hasData ? `${well} — no group` : `${well} — no data`);
-                        const cellClasses = `po-template-preview-cell${hasData ? "" : " po-template-no-data"}`;
-                        const groupText = grp ? escapeHtml(grp.name) : "";
-                        const wellText = hasData ? `<span class="po-template-preview-well">${well}</span>` : "";
-                        previewHtml += `<td title="${escapeHtml(cellTitle)}" class="${cellClasses}" style="background:${cellBg};">${groupText}${wellText}</td>`;
-                    }
-                    previewHtml += "</tr>";
-                }
-                previewHtml += "</tbody></table></div>";
-
-                const legend = Object.entries(groupsDict || {}).map(([name, wells], idx) => {
-                    const n = Array.isArray(wells) ? wells.length : 0;
-                    return `<span style="display:inline-flex; align-items:center; gap:5px; margin:4px 10px 0 0; font-size:0.74rem; color:#334155;">
-                        <span style="width:9px; height:9px; border-radius:50%; background:${poGroupColor(idx)}; border:1px solid rgba(15,23,42,0.15);"></span>
-                        ${escapeHtml(name)} (${n})
-                    </span>`;
-                }).join("");
-                previewHtml += `<div style="margin-top:6px;">${legend}</div>`;
-
-                poTemplatePreviewPlate.innerHTML = previewHtml;
-                if (poTemplatePreviewWrap) poTemplatePreviewWrap.style.display = "";
-                if (poTemplateStopPreviewBtn) poTemplateStopPreviewBtn.style.display = "";
-            }
-
             function refreshPoTemplateSelect() {
                 if (!poTemplateSelect) return;
                 const templates = loadTemplatesFromStorage();
@@ -3482,11 +3234,6 @@
                 });
             }
             refreshPoTemplateSelect();
-
-            poTemplateToolsToggle?.addEventListener("click", function() {
-                const isOpen = poTemplateToolsWrap && poTemplateToolsWrap.style.display !== "none";
-                setTemplateToolsOpen(!isOpen);
-            });
 
             document.getElementById("po-template-save")?.addEventListener("click", function() {
                 const name = (poTemplateNameInput?.value || "").trim();
@@ -3512,13 +3259,12 @@
                 const tpl = templates.find(t => String(t.id) === tid);
                 if (!tpl) return;
                 const groupsDict = poTemplateToGroups(tpl);
-                if (!Object.keys(groupsDict).length) {
-                    if (poTemplateStatus) poTemplateStatus.textContent = "Template has no wells for current plate.";
-                    hideTemplatePreview();
-                    return;
+                const names = Object.keys(groupsDict);
+                if (poTemplateStatus) {
+                    poTemplateStatus.textContent = names.length
+                        ? `Preview: ${names.map(n => `${n} (${groupsDict[n].length})`).join(", ")}`
+                        : "Template has no wells for current plate.";
                 }
-                renderTemplatePreviewPlate(groupsDict);
-                if (poTemplateStatus) poTemplateStatus.textContent = "Preview shown on plate overview (not applied).";
             });
 
             document.getElementById("po-template-apply")?.addEventListener("click", function() {
@@ -3536,16 +3282,6 @@
                 poRenderGroupLegend(groupLegend);
                 reRenderAllCells();
                 if (poTemplateStatus) poTemplateStatus.textContent = "Template applied.";
-                hideTemplatePreview();
-            });
-
-            poTemplateStopPreviewBtn?.addEventListener("click", function() {
-                hideTemplatePreview();
-                if (poTemplateStatus) poTemplateStatus.textContent = "Preview hidden.";
-            });
-
-            poTemplateSelect?.addEventListener("change", function() {
-                hideTemplatePreview();
             });
 
             // Render group legend
@@ -3557,9 +3293,6 @@
                     poDrawMode = !poDrawMode;
                     drawModeBtn.textContent = poDrawMode ? "Grouping mode: ON" : "Grouping mode: OFF";
                     drawModeBtn.style.background = poDrawMode ? "#16a34a" : "#475569";
-                    if (poDrawMode) {
-                        setPoActionMode("");
-                    }
                 });
             }
 
@@ -3574,7 +3307,7 @@
                     if (poDrawMode) {
                         poDragging = true;
                         poSelection.add(well);
-                        poUpdateCellVisual(cell, well, normalizedCb, showHalfCb, globalYRange);
+                        poUpdateCellVisual(cell, well, normalizedCb, showHalfCb);
                         evt.preventDefault();
                     }
                 });
@@ -3585,7 +3318,7 @@
                     const well = cell.dataset.well;
                     if (!data.all_wells.includes(well)) return;
                     poSelection.add(well);
-                    poUpdateCellVisual(cell, well, normalizedCb, showHalfCb, globalYRange);
+                    poUpdateCellVisual(cell, well, normalizedCb, showHalfCb);
                 });
                 document.addEventListener("mouseup", function() {
                     poDragging = false;
@@ -3596,21 +3329,37 @@
                     if (!cell) return;
                     const well = cell.dataset.well;
                     if (!data.all_wells.includes(well)) return;
-                    if (poActionMode === "correct_pred") {
-                        startCorrectionForWell(well);
-                        return;
+                    if (poSelection.has(well)) {
+                        poSelection.delete(well);
+                    } else {
+                        poSelection.add(well);
                     }
-                    if (poActionMode) {
-                        if (poSelection.has(well)) {
-                            poSelection.delete(well);
-                        } else {
-                            poSelection.add(well);
-                        }
-                        poUpdateCellVisual(cell, well, normalizedCb, showHalfCb, globalYRange);
-                        refreshPoInfo();
-                        return;
-                    }
-                    openWellDetailedPlot(well);
+                    poUpdateCellVisual(cell, well, normalizedCb, showHalfCb);
+                });
+                table.addEventListener("dblclick", function(evt) {
+                    if (poDrawMode) return;
+                    const cell = evt.target.closest(".po-cell[data-well]");
+                    if (!cell) return;
+                    const well = cell.dataset.well;
+                    if (!data.all_wells.includes(well)) return;
+                    // Open single-well plot in new tab
+                    const form = document.createElement("form");
+                    form.method = "POST";
+                    form.action = "/plot/select?plot_type=raw";
+                    form.target = "_blank";
+                    const usi = document.createElement("input");
+                    usi.type = "hidden";
+                    usi.name = "upload_set_id";
+                    usi.value = document.querySelector('input[name="upload_set_id"]')?.value || "";
+                    form.appendChild(usi);
+                    const tu = document.createElement("input");
+                    tu.type = "hidden";
+                    tu.name = "time_unit";
+                    tu.value = document.getElementById("time-unit")?.value || "hours";
+                    form.appendChild(tu);
+                    document.body.appendChild(form);
+                    form.submit();
+                    document.body.removeChild(form);
                 });
             }
 
@@ -3638,7 +3387,6 @@
                 clearSelBtn.addEventListener("click", function() {
                     poSelection.clear();
                     reRenderAllCells();
-                    refreshPoInfo();
                 });
             }
 
@@ -3654,27 +3402,17 @@
             }
 
             // Action buttons
-            function poPostForm(action, fields, targetBlank=true) {
+            function poPostForm(action, fields) {
                 const form = document.createElement("form");
                 form.method = "POST";
                 form.action = action;
-                if (targetBlank) form.target = "_blank";
+                form.target = "_blank";
                 Object.entries(fields).forEach(([k, v]) => {
-                    if (Array.isArray(v)) {
-                        v.forEach((item) => {
-                            const inp = document.createElement("input");
-                            inp.type = "hidden";
-                            inp.name = k;
-                            inp.value = item;
-                            form.appendChild(inp);
-                        });
-                    } else {
-                        const inp = document.createElement("input");
-                        inp.type = "hidden";
-                        inp.name = k;
-                        inp.value = v;
-                        form.appendChild(inp);
-                    }
+                    const inp = document.createElement("input");
+                    inp.type = "hidden";
+                    inp.name = k;
+                    inp.value = v;
+                    form.appendChild(inp);
                 });
                 document.body.appendChild(form);
                 form.submit();
@@ -3688,77 +3426,34 @@
                 return grouped.size ? Array.from(grouped).sort() : data.all_wells.slice().sort();
             }
 
-            function groupsFilteredBySelection(groupsDict, selectedWells) {
-                if (!selectedWells || !selectedWells.length) return groupsDict;
-                const sel = new Set(selectedWells);
-                const out = {};
-                Object.entries(groupsDict || {}).forEach(([g, ws]) => {
-                    const keep = (Array.isArray(ws) ? ws : []).filter(w => sel.has(w));
-                    if (keep.length) out[g] = keep;
-                });
-                return out;
-            }
-
-            function armOrRunAction(actionKey, runFn) {
-                if (poDrawMode) {
-                    window.alert("Turn off grouping mode first.");
-                    return;
-                }
-                if (poActionMode !== actionKey) {
-                    poSelection.clear();
-                    reRenderAllCells();
-                    setPoActionMode(actionKey);
-                    return;
-                }
-                runFn();
-            }
-
-            actionBtns.agg?.addEventListener("click", function() {
-                armOrRunAction("agg", function() {
-                    const wells = poGetSelectedOrGroupedWells();
-                    if (!wells.length) {
-                        window.alert("Select at least one well.");
-                        return;
-                    }
-                    poPostForm("/plot/render", {
-                        dataset_id: data.plate_session_id,
-                        groups_json: JSON.stringify(poGroups),
-                        wells: wells,
-                        normalized_curve: (normalizedCb && normalizedCb.checked) ? "1" : "0",
-                    });
-                    setPoActionMode("");
+            document.getElementById("po-act-agg")?.addEventListener("click", function() {
+                const wells = poGetSelectedOrGroupedWells();
+                poPostForm("/plot/render", {
+                    dataset_id: data.plate_session_id,
+                    groups_json: JSON.stringify(poGroups),
                 });
             });
 
-            actionBtns.thalf?.addEventListener("click", function() {
-                armOrRunAction("thalf", function() {
-                    const selected = Array.from(poSelection).sort();
-                    const groupsPayload = groupsFilteredBySelection(poGroups, selected);
-                    if (selected.length && !Object.keys(groupsPayload).length) {
-                        window.alert("Selected wells are not part of any saved group.");
-                        return;
-                    }
-                    const scale = (poThalfScaleSelect && poThalfScaleSelect.value === "log") ? "log" : "linear";
-                    poPostForm(`/plot/thalf?scale=${scale}`, {
-                        thalf_session_id: data.thalf_session_id,
-                        thalf_groups_json: JSON.stringify(groupsPayload),
-                    });
-                    setPoActionMode("");
+            document.getElementById("po-act-thalf-log")?.addEventListener("click", function() {
+                poPostForm("/plot/thalf?scale=log", {
+                    thalf_session_id: data.thalf_session_id,
+                    thalf_groups_json: JSON.stringify(poGroups),
                 });
             });
 
-            actionBtns.correct_pred?.addEventListener("click", function() {
-                if (poDrawMode) {
-                    window.alert("Turn off grouping mode first.");
-                    return;
-                }
-                if (poActionMode === "correct_pred") {
-                    setPoActionMode("");
-                    return;
-                }
-                poSelection.clear();
-                reRenderAllCells();
-                setPoActionMode("correct_pred");
+            document.getElementById("po-act-thalf-lin")?.addEventListener("click", function() {
+                poPostForm("/plot/thalf?scale=linear", {
+                    thalf_session_id: data.thalf_session_id,
+                    thalf_groups_json: JSON.stringify(poGroups),
+                });
+            });
+
+            document.getElementById("po-act-ctrl-ht")?.addEventListener("click", function() {
+                const uploadSetId = document.querySelector('input[name="upload_set_id"]')?.value || "";
+                poPostForm("/control_halftimes/start", {
+                    upload_set_id: uploadSetId,
+                    time_unit: document.getElementById("time-unit")?.value || "hours",
+                });
             });
 
             document.getElementById("po-act-gvc")?.addEventListener("click", async function() {
@@ -3777,7 +3472,7 @@
                     } catch(_) {}
                 }
                 poPostForm("/plot/group_vs_control/start", {
-                    plate_session_id: data.plate_session_id,
+                    upload_set_id: uploadSetId,
                     time_unit: document.getElementById("time-unit")?.value || "hours",
                 });
             });
@@ -3837,8 +3532,6 @@
         const chromContent = document.getElementById("chrom-content");
         const chromInfo = document.getElementById("chrom-info");
         const closeChromBtn = document.getElementById("close-chrom-btn");
-        const openSessionChromOverviewBtn = document.getElementById("session-chromatic-overview-btn");
-        const keepOnlyChromField = document.getElementById("keep-only-chromatic");
 
         const CHROM_COLORS = {
             "1": "#3B82F6", "2": "#F59E0B", "3": "#10B981",
@@ -3851,15 +3544,13 @@
         let chromData = null;
         let pendingFormAction = null;
         let pendingFormMethod = null;
-        let pendingSessionUploadSetId = "";
 
-        function buildChromMiniSvg(xArr, yArr, color, yMinOverride = null, yMaxOverride = null) {
+        function buildChromMiniSvg(xArr, yArr, color) {
             if (!xArr || !xArr.length) return '<svg viewBox="0 0 76 44" width="100%" height="100%"></svg>';
             const W = 76, H = 44, pad = 2;
             const xMin = xArr[0], xMax = xArr[xArr.length - 1];
             const xRng = xMax - xMin || 1;
-            const yMin = Number.isFinite(yMinOverride) ? Number(yMinOverride) : Math.min(...yArr);
-            const yMax = Number.isFinite(yMaxOverride) ? Number(yMaxOverride) : Math.max(...yArr);
+            const yMin = Math.min(...yArr), yMax = Math.max(...yArr);
             const yRng = yMax - yMin || 1;
             function px(x) { return pad + (x - xMin) / xRng * (W - 2 * pad); }
             function py(y) { return H - pad - (y - yMin) / yRng * (H - 2 * pad); }
@@ -3879,16 +3570,13 @@
             let html = `<div class="chrom-legend">`;
             available.forEach(cid => {
                 const color = chromColor(cid);
-                const chromMeta = (data.chromatics[cid] || {});
-                const nWells = Number(chromMeta.n_total_wells ?? chromMeta.n_wells ?? 0);
-                const nSaturated = Number(chromMeta.n_saturated_wells ?? 0);
+                const nWells = (data.chromatics[cid] || {}).n_wells || 0;
                 html += `<div class="chrom-legend-item">
-                    <label class="chrom-legend-left">
+                    <label>
                         <input type="radio" name="chrom-pick" value="${cid}" ${cid === autoSel ? "checked" : ""}>
                         <span class="chrom-swatch" style="background:${color};"></span>
                         Chromatic ${cid} (${nWells} wells)${cid === autoSel ? " ★ auto" : ""}
                     </label>
-                    <span class="chrom-legend-right">${nSaturated}/${nWells} saturated</span>
                 </div>`;
             });
             html += `</div>`;
@@ -3930,28 +3618,6 @@
 
             chromContent.innerHTML = html;
 
-            function computeGlobalRawYRange() {
-                let yMin = Number.POSITIVE_INFINITY;
-                let yMax = Number.NEGATIVE_INFINITY;
-                available.forEach(cid => {
-                    const wellsObj = (data.chromatics[cid] || {}).wells || {};
-                    Object.values(wellsObj).forEach(series => {
-                        const ys = Array.isArray(series?.y) ? series.y : [];
-                        ys.forEach(v => {
-                            const num = Number(v);
-                            if (!Number.isFinite(num)) return;
-                            if (num < yMin) yMin = num;
-                            if (num > yMax) yMax = num;
-                        });
-                    });
-                });
-                if (!Number.isFinite(yMin) || !Number.isFinite(yMax) || yMin === yMax) {
-                    return { yMin: 0, yMax: 1 };
-                }
-                return { yMin, yMax };
-            }
-            const rawYRange = computeGlobalRawYRange();
-
             function renderChromSvgs(normalizedView) {
                 allWells.forEach(well => {
                     const td = chromContent.querySelector(`td[data-chrom-well="${well}"]`);
@@ -3965,17 +3631,13 @@
                         div.setAttribute("data-chrom-svg", cid);
                         const yValsRaw = (wdata[well].y || []).map(v => Number(v));
                         let yVals = yValsRaw;
-                        let yMinForSvg = rawYRange.yMin;
-                        let yMaxForSvg = rawYRange.yMax;
                         if (normalizedView && yValsRaw.length) {
                             const mn = Math.min(...yValsRaw);
                             const mx = Math.max(...yValsRaw);
                             const rr = (mx - mn) || 1;
                             yVals = yValsRaw.map(v => (v - mn) / rr);
-                            yMinForSvg = 0;
-                            yMaxForSvg = 1;
                         }
-                        div.innerHTML = buildChromMiniSvg(wdata[well].x, yVals, chromColor(cid), yMinForSvg, yMaxForSvg);
+                        div.innerHTML = buildChromMiniSvg(wdata[well].x, yVals, chromColor(cid));
                         td.appendChild(div);
                     });
                 });
@@ -4001,7 +3663,6 @@
             });
             const chromNormCb = document.getElementById("chrom-normalized-cb");
             if (chromNormCb) {
-                chromNormCb.checked = false;
                 chromNormCb.addEventListener("change", function() {
                     renderChromSvgs(this.checked);
                     updateChromHighlight();
@@ -4018,31 +3679,9 @@
                     // Set hidden field and submit
                     const forcedField = document.getElementById("forced-chromatic");
                     if (forcedField) forcedField.value = pickedId;
-                    if (keepOnlyChromField) {
-                        keepOnlyChromField.value = (pendingFormAction === "/upload/save_only") ? "1" : "";
-                    }
                     chromModal.classList.remove("show");
                     chromModal.setAttribute("aria-hidden", "true");
-                    // Session chromatic overview flow: apply directly for current upload set.
-                    if (pendingSessionUploadSetId) {
-                        const form = document.createElement("form");
-                        form.method = "post";
-                        form.action = "/files/set_chromatic";
-                        const add = function(name, value) {
-                            const inp = document.createElement("input");
-                            inp.type = "hidden";
-                            inp.name = name;
-                            inp.value = value;
-                            form.appendChild(inp);
-                        };
-                        add("upload_set_id", pendingSessionUploadSetId);
-                        add("chromatic", pickedId);
-                        document.body.appendChild(form);
-                        form.submit();
-                        document.body.removeChild(form);
-                        return;
-                    }
-                    // Upload flow: submit main form with pending action.
+                    // Submit the form
                     const mainForm = document.querySelector('form[action="/analyze"]');
                     if (mainForm && pendingFormAction) {
                         // Use a temporary submit button with formaction
@@ -4104,8 +3743,6 @@
             mainForm.addEventListener("click", async function(evt) {
                 const btn = evt.target.closest("button[type=submit]");
                 if (!btn) return;
-                if (keepOnlyChromField) keepOnlyChromField.value = "";
-                pendingSessionUploadSetId = "";
                 // Buttons tagged with data-skip-intercept bypass the modal check
                 // (used when we programmatically re-submit after deciding no modal needed).
                 if (btn.hasAttribute("data-skip-intercept")) return;
@@ -4128,46 +3765,12 @@
             });
         }
 
-        if (openSessionChromOverviewBtn) {
-            openSessionChromOverviewBtn.addEventListener("click", async function() {
-                const uploadSetId = String(openSessionChromOverviewBtn.dataset.uploadSetId || "").trim();
-                if (!uploadSetId) return;
-                pendingFormAction = null;
-                pendingFormMethod = null;
-                pendingSessionUploadSetId = uploadSetId;
-                if (keepOnlyChromField) keepOnlyChromField.value = "";
-
-                if (chromContent) chromContent.innerHTML = '<div class="po-loading">Loading chromatic data…</div>';
-                chromModal.classList.add("show");
-                chromModal.setAttribute("aria-hidden", "false");
-
-                try {
-                    const body = new URLSearchParams();
-                    body.set("upload_set_id", uploadSetId);
-                    const resp = await fetch("/upload/preview_chromatics_session", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-                        body: body.toString(),
-                    });
-                    const data = await resp.json();
-                    if (!resp.ok || !data.ok) {
-                        if (chromContent) chromContent.innerHTML = `<div class="po-loading" style="color:#b91c1c;">Error: ${data.error || "Could not load chromatics."}</div>`;
-                        return;
-                    }
-                    renderChromModal(data);
-                } catch(_) {
-                    if (chromContent) chromContent.innerHTML = '<div class="po-loading" style="color:#b91c1c;">Network error.</div>';
-                }
-            });
-        }
-
         if (closeChromBtn) {
             closeChromBtn.addEventListener("click", function() {
                 chromModal.classList.remove("show");
                 chromModal.setAttribute("aria-hidden", "true");
                 pendingFormAction = null;
                 pendingFormMethod = null;
-                pendingSessionUploadSetId = "";
             });
         }
         if (chromModal) {
@@ -4177,7 +3780,6 @@
                     chromModal.setAttribute("aria-hidden", "true");
                     pendingFormAction = null;
                     pendingFormMethod = null;
-                    pendingSessionUploadSetId = "";
                 }
             });
         }

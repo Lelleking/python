@@ -723,6 +723,10 @@ def group_vs_control_start():
     data = _plot_datasets.get(dataset_id)
     if not data:
         return render_template("result.html", error="Session saknas för group vs control. Ladda om plate overview.")
+    groups = data.get("groups", {}) if isinstance(data.get("groups", {}), dict) else {}
+    groups = {g: ws for g, ws in groups.items() if isinstance(ws, list) and ws}
+    if not groups:
+        return render_template("result.html", error="Group vs control requires at least one group in the current run.")
 
     return render_template(
         "group_vs_control_select.html",
@@ -732,7 +736,7 @@ def group_vs_control_start():
         time_unit=data.get("time_unit", "hours"),
         time_unit_suffix=unit_suffix(data.get("time_unit", "hours")),
         all_wells=sorted(data["wells"].keys()),
-        groups=data.get("groups", {}),
+        groups=groups,
     )
 
 
@@ -744,6 +748,7 @@ def group_vs_control_render():
         return render_template("result.html", error="Session saknas för group vs control.")
 
     control_wells = request.form.getlist("control_well")
+    excluded_wells = {w.strip() for w in request.form.getlist("exclude_well") if w.strip()}
     norm_setting = request.form.get("norm_setting", "raw")
     group_order_json = (request.form.get("group_order") or "").strip()
     custom_titles = parse_custom_plot_titles(request.form)
@@ -760,6 +765,14 @@ def group_vs_control_render():
             if g not in ordered:
                 ordered[g] = groups[g]
         groups = ordered
+    if excluded_wells:
+        groups = {
+            g: [w for w in (ws if isinstance(ws, list) else []) if w not in excluded_wells]
+            for g, ws in groups.items()
+        }
+        groups = {g: ws for g, ws in groups.items() if ws}
+    if not groups:
+        return render_template("result.html", error="No groups left to plot after exclusions.")
 
     gvc_session_id = uuid.uuid4().hex
     _gvc_sessions[gvc_session_id] = {

@@ -3,6 +3,7 @@ import re
 import json
 import math
 import io
+import hashlib
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
@@ -202,14 +203,38 @@ def resolve_upload_set_for_request():
         upload_format = "auto"
     requested_time_unit = normalize_time_unit(request.form.get("time_unit", session.get("current_time_unit", "hours")))
     force_chromatic = (request.form.get("force_chromatic", "") or "").strip()
+    keep_only_chromatic = str(request.form.get("keep_only_chromatic", "") or "").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
 
     # New upload takes precedence and becomes current state.
     if upload_files:
-        merged_data, source_names = merge_uploaded_files(upload_files, upload_format=upload_format)
+        merged_data, source_names, source_segments = merge_uploaded_files(upload_files, upload_format=upload_format)
+        available_chromatics = sorted_chromatic_keys(merged_data.keys())
         if force_chromatic and force_chromatic in merged_data:
             selected = force_chromatic
         else:
             selected = select_chromatic(merged_data)
+
+        # Optional save mode: keep only the selected chromatic in the saved payload.
+        if keep_only_chromatic and selected in merged_data:
+            merged_data = {selected: merged_data[selected]}
+            available_chromatics = [selected]
+            reduced_segments = []
+            for seg in (source_segments or []):
+                if not isinstance(seg, dict):
+                    continue
+                seg_name = str(seg.get("name", "") or "")
+                seg_data = seg.get("data", {})
+                if not isinstance(seg_data, dict):
+                    continue
+                if selected not in seg_data:
+                    continue
+                reduced_segments.append({
+                    "name": seg_name,
+                    "data": {selected: seg_data[selected]},
+                })
+            source_segments = reduced_segments
         time_sec = merged_data[selected]["time"]
         wells = merged_data[selected]["wells"]
         if not time_sec or not wells:
@@ -224,12 +249,16 @@ def resolve_upload_set_for_request():
                 time_sec=time_sec,
                 wells=wells,
                 time_unit=requested_time_unit,
+                payload_extra={
+                    "source_segments": source_segments,
+                    "available_chromatics": available_chromatics,
+                },
             )
             upload_set = load_saved_run_by_id(run_id, expected_user_id=uid)
             if not upload_set:
                 raise ValueError("Could not load saved run.")
             upload_set["time_unit"] = requested_time_unit
-            upload_set["force_chromatic"] = force_chromatic
+            upload_set["force_chromatic"] = (selected if keep_only_chromatic else force_chromatic)
             _state._stored_upload_sets[run_id] = upload_set
             session["current_upload_set_id"] = run_id
             session["current_time_unit"] = requested_time_unit
@@ -241,10 +270,12 @@ def resolve_upload_set_for_request():
             "saved_paths": [],
             "filenames": source_names,
             "selected_chromatic": selected,
+            "available_chromatics": available_chromatics,
             "time_sec": time_sec,
             "wells": wells,
+            "source_segments": source_segments,
             "time_unit": requested_time_unit,
-            "force_chromatic": force_chromatic,
+            "force_chromatic": (selected if keep_only_chromatic else force_chromatic),
             "source": "ephemeral",
         }
         session["current_time_unit"] = requested_time_unit
@@ -258,6 +289,11 @@ def resolve_upload_set_for_request():
     upload_set = get_upload_set(upload_set_id)
     if not upload_set:
         raise ValueError("No files available. Upload files first.")
+
+    if isinstance(upload_set, dict):
+        segments = upload_set.get("source_segments", [])
+        if isinstance(segments, list) and segments:
+            upload_set["available_chromatics"] = list_chromatics_in_segments(segments)
 
     upload_set["time_unit"] = requested_time_unit
     if current_user_id() is not None:
@@ -273,6 +309,17 @@ def load_dataset_for_upload_set(upload_set):
         and "time_sec" in upload_set
         and "wells" in upload_set
     ):
+        source_segments = upload_set.get("source_segments", [])
+        if isinstance(source_segments, list) and source_segments:
+            upload_set["available_chromatics"] = list_chromatics_in_segments(source_segments)
+            forced = str(upload_set.get("force_chromatic", "") or "").strip()
+            if forced:
+                merged_forced = merge_source_segments(source_segments, selected_chromatic=forced)
+                if forced in merged_forced:
+                    upload_set["selected_chromatic"] = forced
+                    upload_set["time_sec"] = merged_forced[forced]["time"]
+                    upload_set["wells"] = merged_forced[forced]["wells"]
+
         selected = upload_set.get("selected_chromatic")
         time_sec = upload_set.get("time_sec", [])
         wells = upload_set.get("wells", {})
@@ -347,42 +394,69 @@ def merge_data_objects(data_objects):
     merged = {}
 
     for data in data_objects:
+        if not isinstance(data, dict) or not data:
+            continue
 
         for chrom in data:
             if chrom not in merged:
                 merged[chrom] = {"time": [], "wells": {}}
 
-            original_time = data[chrom]["time"]
+            original_time = list(data[chrom].get("time", []))
+            incoming_wells = data[chrom].get("wells", {}) or {}
+            if not original_time or not incoming_wells:
+                continue
 
             if merged[chrom]["time"]:
-                prev_times = merged[chrom]["time"]
-                # Estimate the time step from file1's last interval so file2
-                # starts one step AFTER file1 ends (no duplicate at the seam).
-                if len(prev_times) >= 2:
-                    step = prev_times[-1] - prev_times[-2]
-                else:
-                    step = original_time[1] - original_time[0] if len(original_time) >= 2 else 0
-                time_offset = prev_times[-1] + step
+                # Keep this aligned with the standalone converter logic:
+                # each following file is offset by the previous chromatic end.
+                time_offset = merged[chrom]["time"][-1]
             else:
                 time_offset = 0
-
-            # If file2 starts at 0 (typical sequential export), shift so it
-            # continues after file1.  If it starts at a non-zero value that
-            # would cause overlap, shift to avoid overlap anyway.
-            first_adjusted = (original_time[0] if original_time else 0) + time_offset
-            if merged[chrom]["time"] and first_adjusted <= merged[chrom]["time"][-1]:
-                # Fallback: just place file2 one step after the last point
-                time_offset = merged[chrom]["time"][-1] + step - (original_time[0] if original_time else 0)
 
             adjusted_time = [t + time_offset for t in original_time]
             merged[chrom]["time"].extend(adjusted_time)
 
-            for well in data[chrom]["wells"]:
+            for well in incoming_wells:
                 if well not in merged[chrom]["wells"]:
                     merged[chrom]["wells"][well] = []
-                merged[chrom]["wells"][well].extend(data[chrom]["wells"][well])
+                merged[chrom]["wells"][well].extend(incoming_wells[well])
 
     return merged
+
+
+def sorted_chromatic_keys(chromatic_keys):
+    return sorted(
+        [str(c) for c in chromatic_keys if str(c).strip()],
+        key=lambda x: int(x) if str(x).isdigit() else str(x),
+    )
+
+
+def list_chromatics_in_segments(source_segments):
+    chroms = set()
+    for seg in (source_segments or []):
+        if not isinstance(seg, dict):
+            continue
+        data = seg.get("data", {})
+        if isinstance(data, dict):
+            chroms.update([str(c) for c in data.keys()])
+    return sorted_chromatic_keys(chroms)
+
+
+def merge_source_segments(source_segments, selected_chromatic=None):
+    data_objects = []
+    target = str(selected_chromatic).strip() if selected_chromatic else ""
+    for seg in (source_segments or []):
+        if not isinstance(seg, dict):
+            continue
+        data = seg.get("data", {})
+        if not isinstance(data, dict) or not data:
+            continue
+        if target:
+            if target in data:
+                data_objects.append({target: data[target]})
+        else:
+            data_objects.append(data)
+    return merge_data_objects(data_objects)
 
 
 def merge_files(file_list):
@@ -392,10 +466,31 @@ def merge_files(file_list):
 def merge_uploaded_files(upload_files, upload_format="auto"):
     parsed = []
     source_names = []
+    source_segments = []
+    seen_name_hash_pairs = set()
+    ordered = []
+    has_file_number_hint = False
     for idx, file in enumerate(upload_files):
         if not file or not file.filename:
             continue
         safe_name = secure_filename(file.filename) or f"upload_{idx + 1}.csv"
+        m = re.search(r"file\s*[_-]?\s*(\d+)", safe_name, flags=re.IGNORECASE)
+        if m:
+            has_file_number_hint = True
+            order_key = (0, int(m.group(1)), idx)
+        else:
+            # Keep original upload order when no explicit file number exists.
+            order_key = (1, idx)
+        ordered.append((order_key, idx, file, safe_name))
+
+    if has_file_number_hint:
+        ordered = sorted(ordered, key=lambda x: x[0])
+    else:
+        ordered = sorted(ordered, key=lambda x: x[1])
+
+    for _, idx, file, safe_name in ordered:
+        if not file or not file.filename:
+            continue
         ext = os.path.splitext(safe_name)[1].lower()
         convert_dat = (upload_format == "dat") or (upload_format == "auto" and ext == ".dat")
         raw_bytes = file.read()
@@ -406,14 +501,33 @@ def merge_uploaded_files(upload_files, upload_format="auto"):
         if convert_dat:
             raw_text = normalize_dat_content_to_csv(raw_text)
 
-        parsed.append(parse_text_content(raw_text))
-        if convert_dat:
-            source_names.append(os.path.splitext(safe_name)[0] + ".csv")
-        else:
-            source_names.append(safe_name)
+        normalized_hash = hashlib.sha1(raw_text.encode("utf-8", errors="replace")).hexdigest()
+        source_name = (os.path.splitext(safe_name)[0] + ".csv") if convert_dat else safe_name
+        name_hash_key = (source_name.lower(), normalized_hash)
+        if name_hash_key in seen_name_hash_pairs:
+            continue
+        seen_name_hash_pairs.add(name_hash_key)
+
+        parsed_obj = parse_text_content(raw_text)
+        has_valid_content = any(
+            bool(chrom_data.get("time")) and bool(chrom_data.get("wells"))
+            for chrom_data in (parsed_obj or {}).values()
+            if isinstance(chrom_data, dict)
+        )
+        if not has_valid_content:
+            raise ValueError(f"Could not parse usable curve data from '{safe_name}'.")
+
+        parsed.append(parsed_obj)
+        source_segments.append({"name": source_name, "data": parsed_obj})
+        source_names.append(source_name)
+
+    if not parsed:
+        raise ValueError("No valid uploaded files to merge.")
 
     merged_data = merge_data_objects(parsed)
-    return merged_data, source_names
+    if not merged_data:
+        raise ValueError("Merging produced no usable data.")
+    return merged_data, source_names, source_segments
 
 
 def select_chromatic(data):
@@ -903,17 +1017,9 @@ def build_curve_previews(time_sec, wells, well_halftime, max_points=140, time_un
     return previews
 
 
-def get_all_chromatics_preview(upload_files, upload_format="auto", max_points=80):
-    """Parse uploaded files and return all chromatics as curve data for preview."""
-    # Seek to start of all files (they may have been read already)
-    for f in upload_files:
-        try:
-            f.seek(0)
-        except Exception:
-            pass
-
-    merged_data, source_names = merge_uploaded_files(upload_files, upload_format=upload_format)
-
+def build_chromatics_preview_payload(merged_data, source_names=None, max_points=80):
+    if not isinstance(merged_data, dict) or not merged_data:
+        raise ValueError("No chromatic data available for preview.")
     auto_selected = select_chromatic(merged_data)
     available = sorted(merged_data.keys(), key=lambda x: int(x) if x.isdigit() else x)
 
@@ -923,7 +1029,12 @@ def get_all_chromatics_preview(upload_files, upload_format="auto", max_points=80
         wells_raw = chrom_data.get("wells", {})
 
         if not time_sec_c or not wells_raw:
-            chromatics_out[chrom] = {"wells": {}, "n_wells": 0}
+            chromatics_out[chrom] = {
+                "wells": {},
+                "n_wells": 0,
+                "n_total_wells": 0,
+                "n_saturated_wells": 0,
+            }
             continue
 
         time_h = [t / 3600.0 for t in time_sec_c]
@@ -940,17 +1051,44 @@ def get_all_chromatics_preview(upload_files, upload_format="auto", max_points=80
         x_plot = [time_h[i] for i in idx]
 
         wells_out = {}
+        saturated_count = 0
         for well, signal in wells_raw.items():
             if len(signal) != n:
                 continue
             y_plot = [float(signal[i]) for i in idx]
             wells_out[well] = {"x": x_plot, "y": y_plot}
+            if 260000 in signal:
+                saturated_count += 1
 
-        chromatics_out[chrom] = {"wells": wells_out, "n_wells": len(wells_out)}
+        total_wells = len(wells_out)
+        chromatics_out[chrom] = {
+            "wells": wells_out,
+            "n_wells": total_wells,
+            "n_total_wells": total_wells,
+            "n_saturated_wells": saturated_count,
+        }
 
     return {
         "chromatics": chromatics_out,
         "available": available,
         "auto_selected": auto_selected,
-        "source_names": source_names,
+        "source_names": list(source_names or []),
     }
+
+
+def get_all_chromatics_preview(upload_files, upload_format="auto", max_points=80):
+    """Parse uploaded files and return all chromatics as curve data for preview."""
+    # Seek to start of all files (they may have been read already)
+    for f in upload_files:
+        try:
+            f.seek(0)
+        except Exception:
+            pass
+
+    merged_data, source_names, _ = merge_uploaded_files(upload_files, upload_format=upload_format)
+    return build_chromatics_preview_payload(merged_data, source_names=source_names, max_points=max_points)
+
+
+def get_all_chromatics_preview_from_segments(source_segments, source_names=None, max_points=80):
+    merged_data = merge_source_segments(source_segments, selected_chromatic=None)
+    return build_chromatics_preview_payload(merged_data, source_names=source_names, max_points=max_points)

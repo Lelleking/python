@@ -39,6 +39,7 @@ _plot_images = _state._plot_images
 
 @sigmoid_bp.route("/control_sigmoid/start", methods=["POST"])
 def control_sigmoid_start():
+    preferred_well = (request.form.get("preferred_well", "") or "").strip().upper()
     try:
         upload_set_id, upload_set = resolve_upload_set_for_request()
         selected, time_sec, wells = load_dataset_for_upload_set(upload_set)
@@ -46,10 +47,10 @@ def control_sigmoid_start():
         return render_template("result.html", error=f"Kunde inte starta sigmoidal control: {exc}")
 
     _, well_halftime = predict_well_halftimes(time_sec, wells)
-    # Only include wells with valid calculated halftime (non-N/A).
-    well_order = sorted([w for w in wells.keys() if well_halftime.get(w) is not None])
+    # Keep all wells available so correction can jump directly to any chosen well.
+    well_order = sorted(wells.keys())
     if not well_order:
-        return render_template("result.html", error="Inga wells med giltig halftime hittades för sigmoidal control.")
+        return render_template("result.html", error="Inga wells hittades för sigmoidal control.")
 
     preds = predict_well_sigmoid_points(time_sec, wells)
     sigmoid_id = uuid.uuid4().hex
@@ -68,7 +69,10 @@ def control_sigmoid_start():
         "status_message": "",
         "custom_titles": {"x": "", "y": "", "title": ""},
     }
-    return redirect(url_for("sigmoid_bp.control_sigmoid_view", sigmoid_id=sigmoid_id, idx=0))
+    idx = 0
+    if preferred_well and preferred_well in well_order:
+        idx = well_order.index(preferred_well)
+    return redirect(url_for("sigmoid_bp.control_sigmoid_view", sigmoid_id=sigmoid_id, idx=idx))
 
 
 @sigmoid_bp.route("/control_sigmoid/<sigmoid_id>", methods=["GET"])

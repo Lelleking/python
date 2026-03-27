@@ -3,9 +3,22 @@ import json
 import re
 
 from flask import Blueprint, request, redirect, url_for, session, jsonify
-from data_utils import get_upload_set
+from data_utils import (
+    get_upload_set,
+    merge_data_objects,
+    select_chromatic,
+    merge_source_segments,
+    list_chromatics_in_segments,
+)
 
-from db import get_db_conn, current_user_id, load_saved_run_by_id, list_saved_runs_for_user, rename_run_for_user
+from db import (
+    get_db_conn,
+    current_user_id,
+    load_saved_run_by_id,
+    list_saved_runs_for_user,
+    rename_run_for_user,
+    update_minimal_run_dataset,
+)
 from config import normalize_time_unit
 import state as _state
 
@@ -14,9 +27,134 @@ runs_bp = Blueprint("runs", __name__)
 
 @runs_bp.route("/files/clear", methods=["POST"])
 def clear_files():
+    if not bool(session.get("upload_is_fresh", False)):
+        return redirect(url_for("main_bp.index"))
     current_upload_set_id = session.pop("current_upload_set_id", None)
     if current_upload_set_id:
         _state._stored_upload_sets.pop(current_upload_set_id, None)
+    return redirect(url_for("main_bp.index"))
+
+
+@runs_bp.route("/files/remove", methods=["POST"])
+def remove_single_file():
+    if not bool(session.get("upload_is_fresh", False)):
+        return redirect(url_for("main_bp.index"))
+    upload_set_id = (request.form.get("upload_set_id", "") or "").strip()
+    if not upload_set_id:
+        upload_set_id = session.get("current_upload_set_id", "")
+    file_index_raw = (request.form.get("file_index", "") or "").strip()
+    try:
+        file_index = int(file_index_raw)
+    except Exception:
+        return redirect(url_for("main_bp.index"))
+
+    upload_set = get_upload_set(upload_set_id)
+    if not upload_set:
+        return redirect(url_for("main_bp.index"))
+
+    segments = upload_set.get("source_segments", [])
+    if not isinstance(segments, list) or not segments:
+        # Fallback: if no segment-level data exists, do a full clear to avoid
+        # showing a stale filename list that no longer matches the dataset.
+        if upload_set_id:
+            _state._stored_upload_sets.pop(upload_set_id, None)
+        if session.get("current_upload_set_id", "") == upload_set_id:
+            session.pop("current_upload_set_id", None)
+        return redirect(url_for("main_bp.index"))
+
+    if file_index < 0 or file_index >= len(segments):
+        return redirect(url_for("main_bp.index"))
+
+    remaining_segments = [seg for i, seg in enumerate(segments) if i != file_index]
+    if not remaining_segments:
+        if upload_set_id:
+            _state._stored_upload_sets.pop(upload_set_id, None)
+        if session.get("current_upload_set_id", "") == upload_set_id:
+            session.pop("current_upload_set_id", None)
+        return redirect(url_for("main_bp.index"))
+
+    merged_data = merge_data_objects([seg.get("data", {}) for seg in remaining_segments if isinstance(seg, dict)])
+    if not merged_data:
+        return redirect(url_for("main_bp.index"))
+
+    available_chromatics = list_chromatics_in_segments(remaining_segments)
+    force_chromatic = (upload_set.get("force_chromatic", "") or "").strip()
+    if force_chromatic and force_chromatic in merged_data:
+        selected = force_chromatic
+    else:
+        selected = select_chromatic(merged_data)
+
+    time_sec = merged_data[selected]["time"]
+    wells = merged_data[selected]["wells"]
+    if not time_sec or not wells:
+        return redirect(url_for("main_bp.index"))
+
+    file_names = [str(seg.get("name", "") or "") for seg in remaining_segments]
+    file_names = [name for name in file_names if name]
+
+    upload_set["filenames"] = file_names
+    upload_set["source_segments"] = remaining_segments
+    upload_set["available_chromatics"] = available_chromatics
+    upload_set["selected_chromatic"] = selected
+    upload_set["time_sec"] = time_sec
+    upload_set["wells"] = wells
+    if force_chromatic and force_chromatic not in available_chromatics:
+        upload_set["force_chromatic"] = ""
+    _state._stored_upload_sets[upload_set_id] = upload_set
+
+    uid = current_user_id()
+    if uid is not None and upload_set.get("source") == "persisted" and upload_set_id:
+        update_minimal_run_dataset(
+            run_id=upload_set_id,
+            user_id=uid,
+            source_filenames=file_names,
+            selected_chromatic=selected,
+            time_sec=time_sec,
+            wells=wells,
+            source_segments=remaining_segments,
+            available_chromatics=available_chromatics,
+        )
+
+    return redirect(url_for("main_bp.index"))
+
+
+@runs_bp.route("/files/set_chromatic", methods=["POST"])
+def set_session_chromatic():
+    upload_set_id = (request.form.get("upload_set_id", "") or "").strip()
+    if not upload_set_id:
+        upload_set_id = session.get("current_upload_set_id", "")
+    chromatic = (request.form.get("chromatic", "") or "").strip()
+    if not upload_set_id or not chromatic:
+        return redirect(url_for("main_bp.index"))
+
+    upload_set = get_upload_set(upload_set_id)
+    if not upload_set:
+        return redirect(url_for("main_bp.index"))
+
+    segments = upload_set.get("source_segments", [])
+    if not isinstance(segments, list) or not segments:
+        return redirect(url_for("main_bp.index"))
+
+    available = list_chromatics_in_segments(segments)
+    if chromatic not in available:
+        return redirect(url_for("main_bp.index"))
+
+    merged = merge_source_segments(segments, selected_chromatic=chromatic)
+    if chromatic not in merged:
+        return redirect(url_for("main_bp.index"))
+    time_sec = merged[chromatic]["time"]
+    wells = merged[chromatic]["wells"]
+    if not time_sec or not wells:
+        return redirect(url_for("main_bp.index"))
+
+    upload_set["available_chromatics"] = available
+    upload_set["force_chromatic"] = chromatic
+    upload_set["selected_chromatic"] = chromatic
+    upload_set["time_sec"] = time_sec
+    upload_set["wells"] = wells
+    _state._stored_upload_sets[upload_set_id] = upload_set
+    if current_user_id() is not None:
+        session["current_upload_set_id"] = upload_set_id
     return redirect(url_for("main_bp.index"))
 
 

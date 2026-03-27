@@ -48,6 +48,7 @@ def control_halftimes_start():
     if not source:
         return render_template("result.html", error="Control-session saknas. Kör Calculate t½ igen.")
 
+    preferred_well = (request.form.get("preferred_well", "") or "").strip().upper()
     well_order = sorted(source["wells"].keys())
     if not well_order:
         return render_template("result.html", error="Inga wells hittades för control view.")
@@ -83,7 +84,10 @@ def control_halftimes_start():
         "custom_titles": {"x": "", "y": "", "title": ""},
     }
 
-    return redirect(url_for("halftimes_bp.control_halftimes_view", control_id=control_id, idx=0))
+    idx = 0
+    if preferred_well and preferred_well in well_order:
+        idx = well_order.index(preferred_well)
+    return redirect(url_for("halftimes_bp.control_halftimes_view", control_id=control_id, idx=idx))
 
 
 @halftimes_bp.route("/control_halftimes/<control_id>", methods=["GET"])
