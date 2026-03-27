@@ -233,6 +233,7 @@ def resolve_upload_set_for_request():
             _state._stored_upload_sets[run_id] = upload_set
             session["current_upload_set_id"] = run_id
             session["current_time_unit"] = requested_time_unit
+            session["upload_is_fresh"] = True
             return run_id, upload_set
 
         # Guest mode: do not persist uploaded data to disk.
@@ -247,6 +248,7 @@ def resolve_upload_set_for_request():
             "source": "ephemeral",
         }
         session["current_time_unit"] = requested_time_unit
+        session["upload_is_fresh"] = True
         return "", upload_set
 
     upload_set_id = (request.form.get("upload_set_id", "") or "").strip()

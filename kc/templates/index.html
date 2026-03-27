@@ -616,7 +616,7 @@
         }
         .po-cell {
             width: 80px;
-            height: 62px;
+            height: 58px;
             border: 1px solid #e2e8f0;
             cursor: pointer;
             position: relative;
@@ -624,21 +624,42 @@
             vertical-align: top;
             padding: 0;
             user-select: none;
+            overflow: hidden;
             transition: border-color 0.08s;
         }
         .po-cell:hover { border-color: #93c5fd; }
         .po-cell.po-selected { border: 2px solid #2563eb; box-shadow: inset 0 0 0 1px #2563eb; }
         .po-cell.po-no-data { background: #f8fafc; cursor: default; }
         .po-cell.po-no-data:hover { border-color: #e2e8f0; }
-        .po-cell-inner { display:flex; flex-direction:column; width:100%; height:100%; padding:2px 3px 1px 3px; box-sizing:border-box; }
-        .po-cell-label { font-size:0.6rem; font-weight:600; color:#374151; line-height:1.2; flex:0 0 auto; }
-        .po-cell-halftime { font-size:0.55rem; color:#6b7280; line-height:1; flex:0 0 auto; }
-        .po-cell-svg-wrap { flex:1 1 0; width:100%; min-height:0; }
-        .po-cell-svg-wrap svg { display:block; width:100%; height:100%; }
+        /* SVG fills the entire cell */
+        .po-cell svg { position:absolute; inset:0; width:100%; height:100%; display:block; }
+        /* Overlay labels — hidden by default, revealed by settings classes on the table */
+        .po-cell-label {
+            display: none;
+            position: absolute;
+            bottom: 2px; left: 3px;
+            font-size: 0.52rem; font-weight: 600;
+            color: rgba(30,30,30,0.65);
+            pointer-events: none;
+            line-height: 1;
+        }
+        .po-cell-thalf {
+            display: none;
+            position: absolute;
+            top: 2px; right: 3px;
+            font-size: 0.5rem;
+            color: rgba(180,0,0,0.75);
+            pointer-events: none;
+            line-height: 1;
+        }
+        /* Activated by settings toggles */
+        .po-show-labels  .po-cell-label  { display: block; }
+        .po-show-halftime .po-cell-thalf { display: block; }
         .po-header-cell { text-align:center; font-size:0.68rem; font-weight:700; color:#64748b; padding:2px 4px; min-width:80px; }
         .po-row-label { font-size:0.68rem; font-weight:700; color:#64748b; padding:2px 6px 2px 2px; vertical-align:middle; text-align:center; }
         .po-grid-table { border-collapse:collapse; }
         .po-grid-wrap { overflow-x:auto; }
+        .po-settings-bar { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:8px; padding:6px 10px; background:#f1f5f9; border-radius:7px; font-size:0.82rem; }
         .po-group-legend { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; min-height:20px; }
         .po-group-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 7px 2px 5px; border-radius:999px; font-size:0.75rem; border:1px solid #e2e8f0; background:#f8fafc; }
         .po-group-dot { width:9px; height:9px; border-radius:999px; flex:0 0 9px; }
@@ -794,7 +815,7 @@
             <li>{{ filename }}</li>
             {% endfor %}
         </ul>
-        {% if user_email and upload_set_id %}
+        {% if user_email and upload_set_id and upload_is_fresh %}
         <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
             <input type="text" id="save-run-name-input" placeholder="run name (optional)" style="max-width:200px;">
             <button type="button" id="save-run-btn" style="background:#0f766e;">Save run</button>
@@ -2766,24 +2787,21 @@
         function poUpdateCellVisual(cell, well, normalizedCb, showHalfCb) {
             if (!poData) return;
             const preview = poData.curve_previews[well];
-            const halfVal = poData.well_halftime[well];
-            const inner = cell.querySelector(".po-cell-inner");
-            if (!inner) return;
-            const svgWrap = inner.querySelector(".po-cell-svg-wrap");
-            if (!svgWrap) return;
             const gname = poGetGroupForWell(well);
             const gidx = gname ? poGroupIndex(gname) : -1;
             const cellColor = gidx >= 0 ? poGroupColor(gidx) : "#fff";
             cell.style.background = cellColor;
+            // Remove any existing SVG, then insert fresh one
+            cell.querySelectorAll("svg").forEach(s => s.remove());
             if (preview) {
-                const color = "#2563eb";
-                svgWrap.innerHTML = buildMiniSvg(
+                const svgHtml = buildMiniSvg(
                     preview.x, preview.y,
                     preview.t_half, preview.t_half_y,
                     normalizedCb ? normalizedCb.checked : false,
                     showHalfCb ? showHalfCb.checked : false,
-                    color
+                    "#2563eb"
                 );
+                cell.insertAdjacentHTML("afterbegin", svgHtml);
             }
             if (poSelection.has(well)) {
                 cell.classList.add("po-selected");
@@ -2804,17 +2822,21 @@
             const COLS = 12;
 
             let html = `
-                <div class="plate-ov-options">
-                    <label><input type="checkbox" id="po-normalized-cb"> Normalized</label>
-                    <label><input type="checkbox" id="po-show-thalf-cb" checked> Show t½</label>
-                    <span style="font-size:0.82rem;color:#64748b;">Time unit: ${data.time_unit_suffix}</span>
-                </div>
                 <div class="plate-ov-group-controls">
                     <input type="text" id="po-group-name-input" placeholder="group name" style="max-width:160px;">
                     <button type="button" id="po-assign-btn" style="background:#1d4ed8;">Assign</button>
                     <button type="button" id="po-clear-sel-btn" style="background:#475569;">Clear selection</button>
                     <button type="button" id="po-clear-groups-btn" style="background:#b91c1c;">Clear groups</button>
-                    <button type="button" id="po-draw-mode-btn" style="background:#475569;">Draw mode: OFF</button>
+                    <button type="button" id="po-draw-mode-btn" style="background:#475569;">Grouping mode: OFF</button>
+                </div>
+                <div class="po-settings-bar">
+                    <strong style="font-size:0.75rem;color:#334155;">Settings:</strong>
+                    <label><input type="checkbox" id="po-normalized-cb"> Normalized curves</label>
+                    <label><input type="checkbox" id="po-show-thalf-cb"> Show t½ dot</label>
+                    <label><input type="checkbox" id="po-show-labels-cb"> Show well ID</label>
+                    <label><input type="checkbox" id="po-show-halftime-cb"> Show t½ value</label>
+                    <span style="color:#94a3b8;">|</span>
+                    <span style="color:#64748b;">Time unit: ${data.time_unit_suffix}</span>
                 </div>
                 <div id="po-group-legend" class="po-group-legend"></div>
                 <div class="plate-ov-action-bar">
@@ -2840,11 +2862,8 @@
                     const halfStr = halfVal != null ? `${halfVal}${data.time_unit_suffix}` : (data.invalid_wells.includes(well) ? "N/A" : "");
                     const noDataCls = hasData ? "" : " po-no-data";
                     html += `<td class="po-cell${noDataCls}" data-well="${well}">
-                        <div class="po-cell-inner">
-                            <div class="po-cell-label">${well}</div>
-                            <div class="po-cell-halftime">${halfStr}</div>
-                            <div class="po-cell-svg-wrap"></div>
-                        </div>
+                        <span class="po-cell-label">${well}</span>
+                        <span class="po-cell-thalf">${halfStr}</span>
                     </td>`;
                 }
                 html += `</tr>`;
@@ -2856,10 +2875,13 @@
                 poInfoBar.textContent = `${data.n_files} file(s) | chromatic ${data.chromatic}`;
             }
 
-            const normalizedCb = document.getElementById("po-normalized-cb");
-            const showHalfCb = document.getElementById("po-show-thalf-cb");
-            const groupLegend = document.getElementById("po-group-legend");
-            const drawModeBtn = document.getElementById("po-draw-mode-btn");
+            const normalizedCb   = document.getElementById("po-normalized-cb");
+            const showHalfCb     = document.getElementById("po-show-thalf-cb");
+            const showLabelsCb   = document.getElementById("po-show-labels-cb");
+            const showHalfValCb  = document.getElementById("po-show-halftime-cb");
+            const groupLegend    = document.getElementById("po-group-legend");
+            const drawModeBtn    = document.getElementById("po-draw-mode-btn");
+            const gridTable      = document.getElementById("po-grid-table");
 
             // Render SVGs
             document.querySelectorAll(".po-cell[data-well]").forEach(cell => {
@@ -2869,7 +2891,7 @@
                 }
             });
 
-            // Re-render on option changes
+            // Re-render curves when normalized / t½ dot toggles change
             function reRenderAllCells() {
                 document.querySelectorAll(".po-cell[data-well]").forEach(cell => {
                     const well = cell.dataset.well;
@@ -2879,16 +2901,28 @@
                 });
             }
             if (normalizedCb) normalizedCb.addEventListener("change", reRenderAllCells);
-            if (showHalfCb) showHalfCb.addEventListener("change", reRenderAllCells);
+            if (showHalfCb)   showHalfCb.addEventListener("change", reRenderAllCells);
+
+            // Settings: show/hide overlay labels via CSS classes on the table
+            if (showLabelsCb && gridTable) {
+                showLabelsCb.addEventListener("change", function() {
+                    gridTable.classList.toggle("po-show-labels", this.checked);
+                });
+            }
+            if (showHalfValCb && gridTable) {
+                showHalfValCb.addEventListener("change", function() {
+                    gridTable.classList.toggle("po-show-halftime", this.checked);
+                });
+            }
 
             // Render group legend
             poRenderGroupLegend(groupLegend);
 
-            // Draw mode toggle
+            // Grouping mode toggle
             if (drawModeBtn) {
                 drawModeBtn.addEventListener("click", function() {
                     poDrawMode = !poDrawMode;
-                    drawModeBtn.textContent = poDrawMode ? "Draw mode: ON" : "Draw mode: OFF";
+                    drawModeBtn.textContent = poDrawMode ? "Grouping mode: ON" : "Grouping mode: OFF";
                     drawModeBtn.style.background = poDrawMode ? "#16a34a" : "#475569";
                 });
             }

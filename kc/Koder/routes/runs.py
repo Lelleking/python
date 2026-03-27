@@ -31,6 +31,7 @@ def select_saved_run():
         _state._stored_upload_sets[run_id] = run
         session["current_upload_set_id"] = run_id
         session["current_time_unit"] = normalize_time_unit(run.get("time_unit", "hours"))
+        session["upload_is_fresh"] = False
     return redirect(url_for("main_bp.index"))
 
 

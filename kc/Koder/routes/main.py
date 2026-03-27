@@ -66,6 +66,7 @@ def index():
         folder_policies=folder_policies,
         current_run_groups=current_run_groups,
         auth_error=(session.pop("auth_error", "") or ""),
+        upload_is_fresh=session.get("upload_is_fresh", False),
     )
 
 
