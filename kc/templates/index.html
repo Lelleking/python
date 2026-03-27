@@ -715,8 +715,23 @@
             line-height: 1;
         }
         /* Activated by settings toggles */
+        .po-cell-group {
+            display: none;
+            position: absolute;
+            top: 2px; right: 3px;
+            font-size: 0.5rem; font-weight: 700;
+            color: rgba(255,255,255,0.92);
+            text-shadow: 0 0 3px rgba(0,0,0,0.5);
+            pointer-events: none;
+            line-height: 1;
+            max-width: 90%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
         .po-show-labels  .po-cell-label  { display: block; }
         .po-show-halftime .po-cell-thalf { display: block; }
+        .po-show-group .po-cell-group { display: block; }
         .po-header-cell { text-align:center; font-size:0.62rem; font-weight:700; color:#64748b; padding:1px 0; }
         .po-row-label { font-size:0.65rem; font-weight:700; color:#64748b; padding:0 3px; vertical-align:middle; text-align:right; width:16px; white-space:nowrap; }
         /* table fills container, fixed layout lets cells auto-split remaining width */
@@ -3117,33 +3132,11 @@
             return poGroupColor(Object.keys(poGroups).length);
         }
 
-        function poRenderGroupLegend(legendEl) {
-            legendEl.innerHTML = "";
+        function poRenderGroupLegend() {
             const gvcBtn = document.getElementById("po-act-gvc");
             if (gvcBtn) {
                 gvcBtn.style.display = Object.keys(poGroups || {}).length ? "" : "none";
             }
-            Object.entries(poGroups).forEach(([gname, gwells], idx) => {
-                const badge = document.createElement("span");
-                badge.className = "po-group-badge";
-                const dot = document.createElement("span");
-                dot.className = "po-group-dot";
-                dot.style.background = poGroupColor(idx);
-                const label = document.createElement("span");
-                label.textContent = `${gname} (${Array.isArray(gwells) ? gwells.length : 0})`;
-                const trash = document.createElement("button");
-                trash.className = "po-group-trash";
-                trash.textContent = "✕";
-                trash.title = "Delete group";
-                trash.addEventListener("click", function() {
-                    delete poGroups[gname];
-                    renderPlateOvContent(document.getElementById("po-content"), poData);
-                });
-                badge.appendChild(dot);
-                badge.appendChild(label);
-                badge.appendChild(trash);
-                legendEl.appendChild(badge);
-            });
         }
 
         function poUpdateCellVisual(cell, well, normalizedCb, showHalfCb, globalYRange) {
@@ -3218,10 +3211,10 @@
                     <label><input type="checkbox" id="po-show-thalf-cb"> Show t½ dot</label>
                     <label><input type="checkbox" id="po-show-labels-cb"> Show well ID</label>
                     <label><input type="checkbox" id="po-show-halftime-cb"> Show t½ value</label>
+                    <label><input type="checkbox" id="po-show-group-cb"> Show group</label>
                     <span style="color:#94a3b8;">|</span>
                     <span style="color:#64748b;">Time unit: ${data.time_unit_suffix}</span>
                 </div>
-                <div id="po-group-legend" class="po-group-legend"></div>
                 <div class="plate-ov-action-bar">
                     <button type="button" id="po-act-agg" style="background:#0891b2;">Plot aggregation curves</button>
                     <span style="display:inline-flex;align-items:center;gap:0;border-radius:7px;overflow:hidden;border:1px solid #0f766e;">
@@ -3254,6 +3247,7 @@
                     html += `<td class="po-cell${noDataCls}" data-well="${well}">
                         <span class="po-cell-label">${well}</span>
                         <span class="po-cell-thalf">${halfStr}</span>
+                        <span class="po-cell-group"></span>
                     </td>`;
                 }
                 html += `</tr>`;
@@ -3265,6 +3259,7 @@
             const showHalfCb     = document.getElementById("po-show-thalf-cb");
             const showLabelsCb   = document.getElementById("po-show-labels-cb");
             const showHalfValCb  = document.getElementById("po-show-halftime-cb");
+            const showGroupCb    = document.getElementById("po-show-group-cb");
             const groupLegend    = document.getElementById("po-group-legend");
             const groupColorSwatch = document.getElementById("po-group-color-swatch");
             const poTemplateNameInput = document.getElementById("po-template-name");
@@ -3409,6 +3404,21 @@
                     gridTable.classList.toggle("po-show-halftime", this.checked);
                 });
             }
+            if (showGroupCb && gridTable) {
+                showGroupCb.addEventListener("change", function() {
+                    gridTable.classList.toggle("po-show-group", this.checked);
+                });
+            }
+
+            function updateGroupLabels() {
+                if (!gridTable) return;
+                gridTable.querySelectorAll(".po-cell[data-well]").forEach(cell => {
+                    const well = cell.dataset.well;
+                    const span = cell.querySelector(".po-cell-group");
+                    if (!span) return;
+                    span.textContent = poGetGroupForWell(well) || "";
+                });
+            }
 
             function poTemplateToGroups(tpl) {
                 const out = {};
@@ -3547,7 +3557,7 @@
                     return;
                 }
                 poGroups = groupsDict;
-                poRenderGroupLegend(groupLegend);
+                poRenderGroupLegend(); updateGroupLabels();
                 reRenderAllCells();
                 if (poTemplateStatus) poTemplateStatus.textContent = "Template applied.";
                 hideTemplatePreview();
@@ -3563,7 +3573,7 @@
             });
 
             // Render group legend
-            poRenderGroupLegend(groupLegend);
+            poRenderGroupLegend();
 
             // Group color swatch — shows pending group color
             function updateGroupColorSwatch() {
@@ -3659,7 +3669,7 @@
                     poGroups[gname].sort();
                     poSelection.clear();
                     reRenderAllCells();
-                    poRenderGroupLegend(groupLegend);
+                    poRenderGroupLegend(); updateGroupLabels();
                     updateGroupColorSwatch();
                 });
             }
@@ -3681,7 +3691,7 @@
                     if (!window.confirm("Clear all groups?")) return;
                     poGroups = {};
                     reRenderAllCells();
-                    poRenderGroupLegend(groupLegend);
+                    poRenderGroupLegend(); updateGroupLabels();
                     updateGroupColorSwatch();
                 });
             }
