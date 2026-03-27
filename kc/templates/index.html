@@ -1051,8 +1051,7 @@
                 <div class="nav-menu-items">
                     <button class="nav-menu-item nav-trigger-grouping" type="button">Grouping</button>
                     <button class="nav-menu-item" type="button" data-navaction="/convert_amylofit">Convert to amylofit</button>
-                    <div class="nav-menu-sep"></div>
-                    <button class="nav-menu-item" type="button" data-navaction="/upload/save_only" id="nav-save-run-btn">Save run</button>
+
                 </div>
             </div>
         </div>
@@ -3105,6 +3104,17 @@
             return Object.keys(poGroups).indexOf(gname);
         }
 
+        function poGetPendingGroupColor() {
+            const nameInput = document.getElementById("po-group-name-input");
+            const gname = (nameInput ? nameInput.value || "" : "").trim();
+            if (gname) {
+                const idx = Object.keys(poGroups).indexOf(gname);
+                if (idx >= 0) return poGroupColor(idx);
+                return poGroupColor(Object.keys(poGroups).length);
+            }
+            return poGroupColor(Object.keys(poGroups).length);
+        }
+
         function poRenderGroupLegend(legendEl) {
             legendEl.innerHTML = "";
             const gvcBtn = document.getElementById("po-act-gvc");
@@ -3176,11 +3186,12 @@
 
             let html = `
                 <div class="plate-ov-group-controls">
+                    <button type="button" id="po-draw-mode-btn" style="background:#475569;">Grouping mode: OFF</button>
+                    <span id="po-group-color-swatch" style="display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid #cbd5e1;vertical-align:middle;margin-left:2px;"></span>
                     <input type="text" id="po-group-name-input" placeholder="group name" style="max-width:160px;">
                     <button type="button" id="po-assign-btn" style="background:#1d4ed8;">Assign</button>
                     <button type="button" id="po-clear-sel-btn" style="background:#475569;">Clear selection</button>
                     <button type="button" id="po-clear-groups-btn" style="background:#b91c1c;">Clear groups</button>
-                    <button type="button" id="po-draw-mode-btn" style="background:#475569;">Grouping mode: OFF</button>
                 </div>
                 <div class="po-settings-bar">
                     <strong style="font-size:0.75rem;color:#334155;">Group template:</strong>
@@ -3254,6 +3265,7 @@
             const showLabelsCb   = document.getElementById("po-show-labels-cb");
             const showHalfValCb  = document.getElementById("po-show-halftime-cb");
             const groupLegend    = document.getElementById("po-group-legend");
+            const groupColorSwatch = document.getElementById("po-group-color-swatch");
             const poTemplateNameInput = document.getElementById("po-template-name");
             const poTemplateSelect = document.getElementById("po-template-select");
             const poTemplateStatus = document.getElementById("po-template-status");
@@ -3359,8 +3371,9 @@
                         if (num > gMax) gMax = num;
                     });
                 });
-                if (Number.isFinite(gMin) && Number.isFinite(gMax) && gMin !== gMax) {
-                    globalYRange = { yMin: gMin, yMax: gMax };
+                if (Number.isFinite(gMax) && gMax > 0) {
+                    // Use 0 as yMin so absolute amplitude differences are visible across wells
+                    globalYRange = { yMin: 0, yMax: gMax };
                 }
             }
 
@@ -3551,6 +3564,16 @@
             // Render group legend
             poRenderGroupLegend(groupLegend);
 
+            // Group color swatch — shows pending group color
+            function updateGroupColorSwatch() {
+                if (groupColorSwatch) groupColorSwatch.style.background = poGetPendingGroupColor();
+            }
+            updateGroupColorSwatch();
+            const groupNameInput = document.getElementById("po-group-name-input");
+            if (groupNameInput) {
+                groupNameInput.addEventListener("input", updateGroupColorSwatch);
+            }
+
             // Grouping mode toggle
             if (drawModeBtn) {
                 drawModeBtn.addEventListener("click", function() {
@@ -3575,6 +3598,8 @@
                         poDragging = true;
                         poSelection.add(well);
                         poUpdateCellVisual(cell, well, normalizedCb, showHalfCb, globalYRange);
+                        // Immediately show pending group color if not already assigned
+                        if (poGetGroupForWell(well) === null) cell.style.background = poGetPendingGroupColor();
                         evt.preventDefault();
                     }
                 });
@@ -3586,6 +3611,7 @@
                     if (!data.all_wells.includes(well)) return;
                     poSelection.add(well);
                     poUpdateCellVisual(cell, well, normalizedCb, showHalfCb, globalYRange);
+                    if (poGetGroupForWell(well) === null) cell.style.background = poGetPendingGroupColor();
                 });
                 document.addEventListener("mouseup", function() {
                     poDragging = false;
@@ -3616,7 +3642,6 @@
 
             // Assign button
             const assignBtn = document.getElementById("po-assign-btn");
-            const groupNameInput = document.getElementById("po-group-name-input");
             if (assignBtn && groupNameInput) {
                 assignBtn.addEventListener("click", function() {
                     const gname = (groupNameInput.value || "").trim();
@@ -3627,8 +3652,10 @@
                         if (!poGroups[gname].includes(w)) poGroups[gname].push(w);
                     });
                     poGroups[gname].sort();
+                    poSelection.clear();
                     reRenderAllCells();
                     poRenderGroupLegend(groupLegend);
+                    updateGroupColorSwatch();
                 });
             }
 
@@ -3650,6 +3677,7 @@
                     poGroups = {};
                     reRenderAllCells();
                     poRenderGroupLegend(groupLegend);
+                    updateGroupColorSwatch();
                 });
             }
 
