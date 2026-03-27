@@ -3224,14 +3224,13 @@
                 <div id="po-group-legend" class="po-group-legend"></div>
                 <div class="plate-ov-action-bar">
                     <button type="button" id="po-act-agg" style="background:#0891b2;">Plot aggregation curves</button>
-                    <button type="button" id="po-act-thalf" style="background:#0f766e;">Plot t½ vs conc</button>
-                    <label style="display:inline-flex; align-items:center; gap:6px; font-size:0.82rem; color:#334155; background:#f8fafc; border:1px solid #dbe2ea; border-radius:7px; padding:5px 8px;">
-                        x-axis
-                        <select id="po-thalf-scale" style="min-width:118px;">
-                            <option value="linear">conc (linear)</option>
-                            <option value="log">conc (log)</option>
+                    <span style="display:inline-flex;align-items:center;gap:0;border-radius:7px;overflow:hidden;border:1px solid #0f766e;">
+                        <button type="button" id="po-act-thalf" style="background:#0f766e;border-radius:0;border:none;margin:0;">Plot t½ vs conc</button>
+                        <select id="po-thalf-scale" style="border:none;border-left:1px solid rgba(255,255,255,0.3);background:#0f766e;color:#fff;font-size:0.8rem;padding:0 6px;height:100%;cursor:pointer;">
+                            <option value="linear">linear</option>
+                            <option value="log">log</option>
                         </select>
-                    </label>
+                    </span>
                     <button type="button" id="po-act-correct-pred" style="background:#7c3aed;">Correct predictions</button>
                     <button type="button" id="po-act-gvc" style="background:#ea580c; display:none;">Plot groups vs control</button>
                 </div>
