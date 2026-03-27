@@ -3598,10 +3598,14 @@
                     if (!data.all_wells.includes(well)) return;
                     if (poDrawMode) {
                         poDragging = true;
-                        poSelection.add(well);
-                        poUpdateCellVisual(cell, well, normalizedCb, showHalfCb, globalYRange);
-                        // Immediately show pending group color if not already assigned
-                        if (poGetGroupForWell(well) === null) cell.style.background = poGetPendingGroupColor();
+                        if (poSelection.has(well)) {
+                            poSelection.delete(well);
+                            poUpdateCellVisual(cell, well, normalizedCb, showHalfCb, globalYRange);
+                        } else {
+                            poSelection.add(well);
+                            poUpdateCellVisual(cell, well, normalizedCb, showHalfCb, globalYRange);
+                            if (poGetGroupForWell(well) === null) cell.style.background = poGetPendingGroupColor();
+                        }
                         evt.preventDefault();
                     }
                 });
