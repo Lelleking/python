@@ -3360,7 +3360,7 @@
         let pendingFormMethod = null;
 
         function buildChromMiniSvg(xArr, yArr, color) {
-            if (!xArr || !xArr.length) return '<svg viewBox="0 0 76 44"></svg>';
+            if (!xArr || !xArr.length) return '<svg viewBox="0 0 76 44" width="100%" height="100%"></svg>';
             const W = 76, H = 44, pad = 2;
             const xMin = xArr[0], xMax = xArr[xArr.length - 1];
             const xRng = xMax - xMin || 1;
@@ -3369,7 +3369,7 @@
             function px(x) { return pad + (x - xMin) / xRng * (W - 2 * pad); }
             function py(y) { return H - pad - (y - yMin) / yRng * (H - 2 * pad); }
             const pts = xArr.map((x, i) => `${px(x).toFixed(1)},${py(yArr[i]).toFixed(1)}`).join(" ");
-            return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5"/></svg>`;
+            return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5"/></svg>`;
         }
 
         function renderChromModal(data) {
@@ -3413,12 +3413,8 @@
                 for (let c = 0; c < COLS; c++) {
                     const well = ROWS[r] + String(c+1).padStart(2,"0");
                     const hasAny = allWells.has(well);
-                    html += `<td class="po-cell${hasAny ? "" : " po-no-data"}" style="width:80px;height:62px;padding:0;position:relative;">
-                        <div class="po-cell-inner" style="position:relative;">
-                            <div class="po-cell-label">${well}</div>
-                            <div class="po-cell-svg-wrap" id="chrom-cell-${well}"></div>
-                        </div>
-                    </td>`;
+                    // data-chrom-well used to find the td for SVG injection
+                    html += `<td class="po-cell${hasAny ? "" : " po-no-data"}" data-chrom-well="${well}" style="width:80px;height:62px;padding:0;position:relative;overflow:hidden;"></td>`;
                 }
                 html += `</tr>`;
             }
@@ -3431,22 +3427,19 @@
 
             chromContent.innerHTML = html;
 
-            // Render mini SVGs
+            // Inject SVGs directly into each <td> (which has the defined height)
             allWells.forEach(well => {
-                const wrap = document.getElementById(`chrom-cell-${well}`);
-                if (!wrap) return;
-                // Overlay all chromatics
-                let svgsHtml = "";
+                const td = chromContent.querySelector(`td[data-chrom-well="${well}"]`);
+                if (!td) return;
                 available.forEach(cid => {
                     const wdata = (data.chromatics[cid] || {}).wells || {};
-                    if (wdata[well]) {
-                        svgsHtml += `<div style="position:absolute;inset:0;opacity:0.7;" data-chrom-svg="${cid}">` +
-                            buildChromMiniSvg(wdata[well].x, wdata[well].y, chromColor(cid)) +
-                            `</div>`;
-                    }
+                    if (!wdata[well]) return;
+                    const div = document.createElement("div");
+                    div.style.cssText = "position:absolute;inset:0;opacity:0.85;";
+                    div.setAttribute("data-chrom-svg", cid);
+                    div.innerHTML = buildChromMiniSvg(wdata[well].x, wdata[well].y, chromColor(cid));
+                    td.appendChild(div);
                 });
-                wrap.style.position = "relative";
-                wrap.innerHTML = svgsHtml;
             });
 
             // Highlight selected chromatic on radio change
@@ -3456,7 +3449,7 @@
                 const pickedId = picked.value;
                 allWells.forEach(well => {
                     available.forEach(cid => {
-                        const svgDiv = document.querySelector(`#chrom-cell-${well} [data-chrom-svg="${cid}"]`);
+                        const svgDiv = chromContent.querySelector(`td[data-chrom-well="${well}"] [data-chrom-svg="${cid}"]`);
                         if (svgDiv) {
                             svgDiv.style.opacity = (cid === pickedId) ? "1" : "0.2";
                         }
