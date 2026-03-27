@@ -724,51 +724,224 @@
             margin-bottom: 10px;
             align-items: center;
         }
+        /* ── Navbar ──────────────────────────────────────── */
+        .site-nav {
+            position: sticky;
+            top: 0;
+            z-index: 200;
+            background: #0f172a;
+            color: white;
+            display: flex;
+            align-items: center;
+            height: 48px;
+            padding: 0 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+            gap: 0;
+        }
+        .site-nav-brand {
+            font-weight: 700;
+            font-size: 1.05rem;
+            color: #e2e8f0;
+            margin-right: 20px;
+            letter-spacing: 0.04em;
+            white-space: nowrap;
+        }
+        .site-nav-menus {
+            display: flex;
+            flex: 1;
+            align-items: stretch;
+            height: 100%;
+        }
+        .nav-menu {
+            position: relative;
+            display: flex;
+            align-items: stretch;
+        }
+        .nav-menu-btn {
+            background: none;
+            border: none;
+            color: #cbd5e1;
+            padding: 0 16px;
+            height: 100%;
+            cursor: pointer;
+            font-size: 0.87rem;
+            font-weight: 500;
+            border-radius: 0;
+            box-shadow: none;
+            margin: 0;
+            white-space: nowrap;
+            transition: background 0.12s, color 0.12s;
+        }
+        .nav-menu-btn:hover, .nav-menu.open .nav-menu-btn {
+            background: #1e293b;
+            color: #f1f5f9;
+        }
+        .nav-menu-items {
+            display: none;
+            position: absolute;
+            top: 48px;
+            left: 0;
+            background: #1e293b;
+            min-width: 220px;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+            z-index: 400;
+            padding: 4px 0;
+        }
+        .nav-menu.open .nav-menu-items { display: block; }
+        .nav-menu-item {
+            display: block;
+            width: 100%;
+            text-align: left;
+            padding: 9px 16px;
+            background: none;
+            border: none;
+            color: #e2e8f0;
+            cursor: pointer;
+            font-size: 0.84rem;
+            border-radius: 0;
+            box-shadow: none;
+            margin: 0;
+            white-space: nowrap;
+            transition: background 0.1s;
+        }
+        .nav-menu-item:hover { background: #334155; color: #fff; }
+        .nav-menu-sep {
+            height: 1px;
+            background: #334155;
+            margin: 4px 8px;
+        }
+        .site-nav-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 0.82rem;
+            color: #94a3b8;
+            margin-left: auto;
+        }
+        .site-nav-right strong { color: #e2e8f0; font-weight: 600; }
+        .nav-run-pill {
+            background: #1e3a5f;
+            border: 1px solid #2563eb55;
+            border-radius: 20px;
+            padding: 2px 10px;
+            font-size: 0.75rem;
+            color: #7dd3fc;
+            white-space: nowrap;
+        }
+        .nav-acct-btn {
+            background: #334155;
+            border: none;
+            color: #e2e8f0;
+            padding: 4px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.78rem;
+            margin: 0;
+            box-shadow: none;
+        }
+        .nav-acct-btn:hover { background: #475569; }
+        .nav-login-inline {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+        .nav-login-inline input {
+            padding: 3px 8px;
+            font-size: 0.78rem;
+            border: 1px solid #475569;
+            border-radius: 5px;
+            background: #1e293b;
+            color: #e2e8f0;
+            width: 110px;
+            margin: 0;
+        }
+        .nav-login-inline input::placeholder { color: #64748b; }
+        .nav-metrics-pill {
+            background: #064e3b;
+            border: 1px solid #059669;
+            border-radius: 20px;
+            padding: 2px 10px;
+            font-size: 0.72rem;
+            color: #6ee7b7;
+            white-space: nowrap;
+        }
+        /* page body padding for sticky nav */
+        body { padding-top: 0; }
+        .site-body { max-width: 900px; margin: 0 auto; padding: 16px 16px 40px; }
     </style>
 </head>
 <body>
-    {% if train_metrics %}
-    <div class="metrics-box">
-        <div><strong>Current accuracy:</strong></div>
-        <div>Aggregation or not: {{ train_metrics.aggregation_pct }}%</div>
-        <div>Half-time: +-{{ train_metrics.halftime_err_pct }}% or +-{{ train_metrics.halftime_err_hours }} h</div>
-    </div>
+
+    <!-- ── Navigation bar ──────────────────────────────── -->
+    <nav class="site-nav">
+        <div class="site-nav-brand">aSyn Analyzer</div>
+        <div class="site-nav-menus">
+            <div class="nav-menu" id="nav-menu-analyze">
+                <button class="nav-menu-btn" type="button">Analyze ▾</button>
+                <div class="nav-menu-items">
+                    <button class="nav-menu-item" type="button" data-navaction="/analyze">Calculate t½</button>
+                    <button class="nav-menu-item" type="button" data-navaction="/aggregation_analysis/start">Aggregation analysis</button>
+                    <button class="nav-menu-item" type="button" data-navaction="/aggregation_event_ai/start">Aggregation event AI</button>
+                    <button class="nav-menu-item" type="button" data-navaction="/control_sigmoid/start">Control sigmoid fitting</button>
+                </div>
+            </div>
+            <div class="nav-menu" id="nav-menu-plots">
+                <button class="nav-menu-btn" type="button">Plots ▾</button>
+                <div class="nav-menu-items">
+                    <button class="nav-menu-item nav-trigger-plate-overview" type="button">Plate overview</button>
+                    <button class="nav-menu-item" type="button" data-navaction="/plot/select?plot_type=raw">Plot aggregation curve</button>
+                    <button class="nav-menu-item" type="button" data-navaction="/smart_summary" data-navmethod="get">Smart summary</button>
+                </div>
+            </div>
+            <div class="nav-menu" id="nav-menu-other">
+                <button class="nav-menu-btn" type="button">Other ▾</button>
+                <div class="nav-menu-items">
+                    <button class="nav-menu-item nav-trigger-grouping" type="button">Grouping</button>
+                    <button class="nav-menu-item" type="button" data-navaction="/convert_amylofit">Convert to amylofit</button>
+                    <div class="nav-menu-sep"></div>
+                    <button class="nav-menu-item" type="button" data-navaction="/upload/save_only" id="nav-save-run-btn">Save run</button>
+                </div>
+            </div>
+        </div>
+        <div class="site-nav-right">
+            {% if train_metrics %}
+            <span class="nav-metrics-pill" title="AI model accuracy">t½ ±{{ train_metrics.halftime_err_pct }}% · Aggr {{ train_metrics.aggregation_pct }}%</span>
+            {% endif %}
+            {% if upload_set_id %}
+            <span class="nav-run-pill">{{ current_files|length }} file{{ 's' if current_files|length != 1 else '' }} loaded</span>
+            {% endif %}
+            {% if user_email %}
+            <strong>{{ user_email }}</strong>
+            <form action="/auth/logout" method="post" style="margin:0;">
+                <button type="submit" class="nav-acct-btn">Log out</button>
+            </form>
+            {% else %}
+            <form action="/auth/login" method="post" class="nav-login-inline" style="margin:0;">
+                <input type="email" name="email" placeholder="email" required>
+                <input type="password" name="password" placeholder="password" required>
+                <button type="submit" class="nav-acct-btn" style="background:#1d4ed8;">Log in</button>
+            </form>
+            <form action="/auth/register" method="post" class="nav-login-inline" style="margin:0;">
+                <input type="email" name="email" placeholder="email" required>
+                <input type="password" name="password" placeholder="password" required>
+                <button type="submit" class="nav-acct-btn" style="background:#7c3aed;">Register</button>
+            </form>
+            {% endif %}
+        </div>
+    </nav>
+
+    <div class="site-body">
+
+    {% if auth_error %}
+    <p style="margin:8px 0; color:#b91c1c; font-size:0.9rem;">{{ auth_error }}</p>
     {% endif %}
 
-    <h1>Upload Aggregation Files</h1>
-
-    <details open>
-        <summary>Account</summary>
-        <div style="padding:10px 12px; border:1px solid #e2e8f0; border-radius:0 0 10px 10px; border-top:none; background:#f8fafc; margin-bottom:2px;">
-        {% if user_email %}
-        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-            <strong>Signed in as {{ user_email }}</strong>
-            <form action="/auth/logout" method="post" style="margin:0;">
-                <button type="submit" style="background:#64748b;">Log out</button>
-            </form>
-        </div>
-        {% else %}
-        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
-            <form action="/auth/login" method="post" style="margin:0; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                <input type="email" name="email" placeholder="email" required>
-                <input type="password" name="password" placeholder="password" required>
-                <button type="submit" style="background:#1d4ed8;">Log in</button>
-            </form>
-            <form action="/auth/register" method="post" style="margin:0; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                <input type="email" name="email" placeholder="email" required>
-                <input type="password" name="password" placeholder="password" required>
-                <button type="submit" style="background:#9333ea;">Create account</button>
-            </form>
-        </div>
-        {% if auth_error %}
-        <p style="margin:8px 0 0 0; color:#b91c1c;">{{ auth_error }}</p>
-        {% endif %}
-        {% endif %}
-        <p style="margin:8px 0 0 2px; font-size:0.82rem; color:#64748b;">
-            Sign in to keep processed runs so you can continue later without re-uploading files.
-        </p>
-        </div>
-    </details>
+    {% if not user_email %}
+    <p style="margin:0 0 10px 0; font-size:0.84rem; color:#64748b; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:8px 12px;">
+        Log in using the navbar above to keep processed runs so you can continue later without re-uploading files.
+    </p>
+    {% endif %}
 
     {% if user_email and saved_runs and saved_runs|length > 0 %}
     <details>
@@ -830,7 +1003,7 @@
     {% endif %}
     <button type="button" id="open-grouping-btn" class="grouping-open-btn">Grouping</button>
 
-    <form action="/analyze" method="post" enctype="multipart/form-data">
+    <form id="main-analyze-form" action="/analyze" method="post" enctype="multipart/form-data">
         <input type="hidden" name="upload_set_id" value="{{ upload_set_id or '' }}">
         <input type="hidden" id="forced-chromatic" name="force_chromatic" value="">
         <label for="time-unit">Time unit</label>
@@ -873,6 +1046,7 @@
             <div class="btn-group">
                 <div class="btn-group-title" style="background:#1e293b;">Other</div>
                 <button type="submit" formaction="/convert_amylofit" style="background:#16a34a;">Convert to amylofit format</button>
+                <button type="submit" formaction="/upload/save_only" id="form-save-run-btn" style="background:#0f766e;">Save run</button>
             </div>
         </div>
     </form>
@@ -3400,5 +3574,67 @@
         }
     })();
     </script>
+
+    <script>
+    // ── Navbar menus ──────────────────────────────────────────────────────────
+    (function() {
+        const mainForm = document.getElementById("main-analyze-form");
+
+        // Toggle dropdown open/close
+        document.querySelectorAll(".nav-menu-btn").forEach(function(btn) {
+            btn.addEventListener("click", function(e) {
+                e.stopPropagation();
+                const menu = btn.closest(".nav-menu");
+                const wasOpen = menu.classList.contains("open");
+                document.querySelectorAll(".nav-menu").forEach(m => m.classList.remove("open"));
+                if (!wasOpen) menu.classList.add("open");
+            });
+        });
+        document.addEventListener("click", function() {
+            document.querySelectorAll(".nav-menu").forEach(m => m.classList.remove("open"));
+        });
+
+        // Nav items that trigger form submissions (goes through chromatic interceptor)
+        document.querySelectorAll(".nav-menu-item[data-navaction]").forEach(function(item) {
+            item.addEventListener("click", function(e) {
+                e.stopPropagation();
+                document.querySelectorAll(".nav-menu").forEach(m => m.classList.remove("open"));
+                if (!mainForm) return;
+                const action = item.getAttribute("data-navaction");
+                const method = item.getAttribute("data-navmethod") || "post";
+                // Insert a temporary submit button inside the form so the chromatic
+                // modal interceptor catches it, then programmatically click it.
+                const tmp = document.createElement("button");
+                tmp.type = "submit";
+                tmp.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;";
+                tmp.setAttribute("formaction", action);
+                if (method !== "post") tmp.setAttribute("formmethod", method);
+                mainForm.appendChild(tmp);
+                tmp.click();
+                setTimeout(() => { if (tmp.parentNode) tmp.parentNode.removeChild(tmp); }, 600);
+            });
+        });
+
+        // Plate overview trigger
+        document.querySelectorAll(".nav-trigger-plate-overview").forEach(function(item) {
+            item.addEventListener("click", function() {
+                document.querySelectorAll(".nav-menu").forEach(m => m.classList.remove("open"));
+                const btn = document.getElementById("open-plate-overview-btn");
+                if (btn) btn.click();
+            });
+        });
+
+        // Grouping trigger
+        document.querySelectorAll(".nav-trigger-grouping").forEach(function(item) {
+            item.addEventListener("click", function() {
+                document.querySelectorAll(".nav-menu").forEach(m => m.classList.remove("open"));
+                const btn = document.getElementById("open-grouping-btn");
+                if (btn) btn.click();
+            });
+        });
+    })();
+    </script>
+
+    </div><!-- /.site-body -->
 </body>
 </html>

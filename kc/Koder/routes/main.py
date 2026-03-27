@@ -147,6 +147,17 @@ def convert_amylofit():
     )
 
 
+@main_bp.route("/upload/save_only", methods=["POST"])
+def upload_save_only():
+    try:
+        upload_set_id, _ = resolve_upload_set_for_request()
+        if upload_set_id:
+            session["upload_is_fresh"] = True
+    except Exception:
+        pass
+    return redirect(url_for("main_bp.index"))
+
+
 @main_bp.route("/upload/preview_chromatics", methods=["POST"])
 def upload_preview_chromatics():
     from data_utils import get_all_chromatics_preview
