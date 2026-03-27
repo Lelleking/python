@@ -1027,7 +1027,7 @@
             Names like <code>file1</code>, <code>file2</code> are only a backup check.
         </p>
         <button type="button" id="add-file-btn" style="background:#475569;">Add file</button>
-        <button type="submit" formaction="/upload/save_only" style="background:#0f766e;">Save run</button>
+        <button type="submit" formaction="/upload/save_only" style="background:#0f766e;">Save</button>
         {% endif %}
 
         <div class="btn-groups-row">
@@ -3540,17 +3540,32 @@
             }
         }
 
-        // Intercept all submit buttons in the analyze form
+        // Intercept all submit buttons in the analyze form.
+        // IMPORTANT: preventDefault must be called synchronously before any await,
+        // so we always preventDefault first, then re-submit manually if no modal needed.
         const mainForm = document.querySelector('form[action="/analyze"]');
         if (mainForm) {
             mainForm.addEventListener("click", async function(evt) {
                 const btn = evt.target.closest("button[type=submit]");
                 if (!btn) return;
+                // Buttons tagged with data-skip-intercept bypass the modal check
+                // (used when we programmatically re-submit after deciding no modal needed).
+                if (btn.hasAttribute("data-skip-intercept")) return;
+                evt.preventDefault(); // Must be synchronous
                 const fa = btn.getAttribute("formaction") || "/analyze";
                 const fm = btn.getAttribute("formmethod") || "post";
                 const intercepted = await maybeShowChromModal(fa, fm, evt);
-                if (intercepted) {
-                    evt.preventDefault();
+                if (!intercepted) {
+                    // No modal needed — re-submit with the correct formaction
+                    const tmp = document.createElement("button");
+                    tmp.type = "submit";
+                    tmp.setAttribute("data-skip-intercept", "1");
+                    tmp.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;";
+                    if (fa !== "/analyze") tmp.setAttribute("formaction", fa);
+                    if (fm !== "post") tmp.setAttribute("formmethod", fm);
+                    mainForm.appendChild(tmp);
+                    tmp.click();
+                    setTimeout(() => { if (tmp.parentNode) tmp.parentNode.removeChild(tmp); }, 300);
                 }
             });
         }
