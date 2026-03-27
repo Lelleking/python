@@ -1060,7 +1060,9 @@
             <span class="nav-metrics-pill" title="AI model accuracy">t½ ±{{ train_metrics.halftime_err_pct }}% · Aggr {{ train_metrics.aggregation_pct }}%</span>
             {% endif %}
             {% if upload_set_id %}
-            <span class="nav-run-pill">{{ current_files|length }} file{{ 's' if current_files|length != 1 else '' }} loaded</span>
+            {% set _current_run = saved_runs | selectattr('id', 'equalto', upload_set_id) | first | default(none) %}
+            {% set _run_label = _current_run.run_name if (_current_run and _current_run.run_name) else (current_files[0] if current_files else 'Unsaved run') %}
+            <span class="nav-run-pill" title="{{ _run_label }}">{{ _run_label | truncate(40, true, '…') }}</span>
             {% endif %}
             {% if user_email %}
             <strong>{{ user_email }}</strong>
