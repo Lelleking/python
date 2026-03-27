@@ -3362,11 +3362,17 @@
 
             let html = `
                 <div class="po-feature-bar">
-                    <span class="po-feature-label">Feature:</span>
+                    <span class="po-feature-label">Const values:</span>
                     <div class="po-feature-tabs" id="po-feature-tabs"></div>
-                    <button type="button" id="po-add-feature-btn">+ Add feature</button>
+                    <button type="button" id="po-add-feature-btn">+ Add const value</button>
                     <div class="po-add-feature-inline" id="po-add-feature-form" style="display:none;">
-                        <input type="text" id="po-new-feature-input" placeholder="e.g. Temperature">
+                        <select id="po-new-feature-select" style="font-size:0.8rem;padding:3px 7px;border:1px solid #cbd5e1;border-radius:6px;">
+                            <option value="group">group</option>
+                            <option value="m0">m0</option>
+                            <option value="seed concentration">seed concentration</option>
+                            <option value="__custom__">Custom…</option>
+                        </select>
+                        <input type="text" id="po-new-feature-input" placeholder="name" style="display:none;max-width:130px;">
                         <button type="button" id="po-new-feature-confirm" style="background:#1d4ed8;font-size:0.78rem;padding:3px 9px;">Create</button>
                         <button type="button" id="po-new-feature-cancel" style="background:#475569;font-size:0.78rem;padding:3px 7px;">✕</button>
                     </div>
@@ -3374,8 +3380,9 @@
                 <div class="plate-ov-group-controls">
                     <button type="button" id="po-draw-mode-btn" style="background:#475569;">Grouping mode: OFF</button>
                     <span id="po-group-color-swatch" style="display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid #cbd5e1;vertical-align:middle;margin-left:2px;"></span>
-                    <input type="text" id="po-group-name-input" placeholder="group name" style="max-width:160px;">
+                    <input type="text" id="po-group-name-input" placeholder="value" style="max-width:160px;">
                     <button type="button" id="po-assign-btn" style="background:#1d4ed8;">Assign</button>
+                    <button type="button" id="po-select-all-btn" style="background:#334155;">Select all</button>
                     <button type="button" id="po-clear-sel-btn" style="background:#475569;">Clear selection</button>
                     <button type="button" id="po-clear-groups-btn" style="background:#b91c1c;">Clear groups</button>
                 </div>
@@ -3457,7 +3464,7 @@
                     const btn = document.createElement("button");
                     btn.type = "button";
                     btn.className = "po-feature-tab" + (fname === poActiveFeature ? " po-feature-active" : "");
-                    btn.textContent = fname === "" ? "Groups" : fname;
+                    btn.textContent = fname === "" ? "group" : fname;
                     btn.dataset.feature = fname;
                     btn.addEventListener("click", function() { switchToFeature(fname); });
                     tabsEl.appendChild(btn);
@@ -3495,16 +3502,35 @@
                 poFeatures["__default__"] = JSON.parse(JSON.stringify(poGroups));
             }
 
-            const addFeatureBtn   = document.getElementById("po-add-feature-btn");
-            const addFeatureForm  = document.getElementById("po-add-feature-form");
-            const newFeatureInput = document.getElementById("po-new-feature-input");
+            const addFeatureBtn     = document.getElementById("po-add-feature-btn");
+            const addFeatureForm    = document.getElementById("po-add-feature-form");
+            const newFeatureSelect  = document.getElementById("po-new-feature-select");
+            const newFeatureInput   = document.getElementById("po-new-feature-input");
             const newFeatureConfirm = document.getElementById("po-new-feature-confirm");
             const newFeatureCancel  = document.getElementById("po-new-feature-cancel");
 
+            function getNewFeatureName() {
+                if (newFeatureSelect?.value === "__custom__") {
+                    return (newFeatureInput?.value || "").trim();
+                }
+                return newFeatureSelect?.value || "";
+            }
+
+            if (newFeatureSelect) {
+                newFeatureSelect.addEventListener("change", function() {
+                    const isCustom = this.value === "__custom__";
+                    if (newFeatureInput) {
+                        newFeatureInput.style.display = isCustom ? "" : "none";
+                        if (isCustom) newFeatureInput.focus();
+                    }
+                });
+            }
             if (addFeatureBtn) {
                 addFeatureBtn.addEventListener("click", function() {
-                    addFeatureForm.style.display = addFeatureForm.style.display === "none" ? "" : "none";
-                    if (newFeatureInput) newFeatureInput.focus();
+                    const show = addFeatureForm.style.display === "none";
+                    addFeatureForm.style.display = show ? "" : "none";
+                    if (show && newFeatureSelect) newFeatureSelect.value = "group";
+                    if (newFeatureInput) newFeatureInput.style.display = "none";
                 });
             }
             if (newFeatureCancel) {
@@ -3515,7 +3541,7 @@
             }
             if (newFeatureConfirm) {
                 newFeatureConfirm.addEventListener("click", function() {
-                    const fname = (newFeatureInput?.value || "").trim();
+                    const fname = getNewFeatureName();
                     if (!fname) { newFeatureInput?.focus(); return; }
                     if (fname === "Groups" || fname === "__default__") {
                         window.alert("Reserved name. Choose a different name.");
@@ -3523,7 +3549,7 @@
                     }
                     if (!poFeatures[fname]) poFeatures[fname] = {};
                     addFeatureForm.style.display = "none";
-                    newFeatureInput.value = "";
+                    if (newFeatureInput) newFeatureInput.value = "";
                     switchToFeature(fname);
                 });
             }
@@ -3531,6 +3557,23 @@
                 newFeatureInput.addEventListener("keydown", function(e) {
                     if (e.key === "Enter") newFeatureConfirm?.click();
                     if (e.key === "Escape") newFeatureCancel?.click();
+                });
+            }
+
+            // Select all wells
+            const selectAllBtn = document.getElementById("po-select-all-btn");
+            if (selectAllBtn) {
+                selectAllBtn.addEventListener("click", function() {
+                    data.all_wells.forEach(w => poSelection.add(w));
+                    reRenderAllCells();
+                    refreshPoInfo();
+                    // Apply pending group color to all newly selected unassigned wells
+                    document.querySelectorAll(".po-cell[data-well]").forEach(cell => {
+                        const well = cell.dataset.well;
+                        if (data.all_wells.includes(well) && poGetGroupForWell(well) === null) {
+                            cell.style.background = poGetPendingGroupColor();
+                        }
+                    });
                 });
             }
 
