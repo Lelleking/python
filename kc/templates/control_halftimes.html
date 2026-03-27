@@ -27,7 +27,7 @@
             <div style="position:absolute; z-index:15; top:120%; left:0; min-width:120px; max-height:240px; overflow-y:auto; background:#fff; border:1px solid #d1d5db; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.14); padding:6px;">
                 {% for well_idx, well_name in well_options %}
                 <div>
-                    <a href="{{ url_for('control_halftimes_view', control_id=control_id, idx=well_idx) }}" style="display:block; padding:6px 8px; border-radius:6px; text-decoration:none; color:#111827; {% if well_idx == idx %}background:#e5e7eb; font-weight:700;{% endif %}">
+                    <a href="{{ url_for('halftimes_bp.control_halftimes_view', control_id=control_id, idx=well_idx) }}" style="display:block; padding:6px 8px; border-radius:6px; text-decoration:none; color:#111827; {% if well_idx == idx %}background:#e5e7eb; font-weight:700;{% endif %}">
                         {{ well_name }}
                     </a>
                 </div>
@@ -36,11 +36,11 @@
         </details>
     </p>
 
-    <p><a href="{{ url_for('plot_download', plot_id=image_id) }}">Download plot</a></p>
+    <p><a href="{{ url_for('plots_bp.plot_download', plot_id=image_id) }}">Download plot</a></p>
 
     <div class="plot-nav-layout">
         {% if has_prev %}
-        <a class="nav-arrow nav-left" href="{{ url_for('control_halftimes_view', control_id=control_id, idx=prev_idx) }}" aria-label="Previous well">&#8592;</a>
+        <a class="nav-arrow nav-left" href="{{ url_for('halftimes_bp.control_halftimes_view', control_id=control_id, idx=prev_idx) }}" aria-label="Previous well">&#8592;</a>
         {% else %}
         <span class="nav-arrow nav-left nav-disabled" aria-hidden="true">&#8592;</span>
         {% endif %}
@@ -51,7 +51,7 @@
         </div>
 
         {% if has_next %}
-        <a class="nav-arrow nav-right" href="{{ url_for('control_halftimes_view', control_id=control_id, idx=next_idx) }}" aria-label="Next well">&#8594;</a>
+        <a class="nav-arrow nav-right" href="{{ url_for('halftimes_bp.control_halftimes_view', control_id=control_id, idx=next_idx) }}" aria-label="Next well">&#8594;</a>
         {% else %}
         <span class="nav-arrow nav-right nav-disabled" aria-hidden="true">&#8594;</span>
         {% endif %}
@@ -60,7 +60,7 @@
     <p><strong>Submitted halftime:</strong> <span id="submitted-halftime-text">{{ submitted_t_half }}</span></p>
     <p><strong>Submitted y-value:</strong> <span id="submitted-y-text">{% if submitted_y_value is not none %}{{ "%.1f"|format(submitted_y_value) }} a.u.{% else %}N/A{% endif %}</span></p>
 
-    <form action="{{ url_for('control_halftimes_update', control_id=control_id) }}" method="post">
+    <form action="{{ url_for('halftimes_bp.control_halftimes_update', control_id=control_id) }}" method="post">
         <input type="hidden" name="idx" value="{{ idx }}">
         <details style="margin-bottom:8px;">
             <summary style="cursor:pointer; display:inline-block; border:1px solid #cbd5e1; border-radius:8px; padding:6px 10px; background:#f8fafc;">
@@ -93,6 +93,9 @@
             </button>
             <button class="good-pred-btn" type="submit" name="action" value="mark_good_prediction">
                 Good prediction (also trains the model)
+            </button>
+            <button type="submit" name="action" value="undo_latest_submit" style="background:#475569;">
+                Undo latest submit
             </button>
         </div>
 

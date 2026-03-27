@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>Groups vs control — results</title>
+</head>
+<body>
+    <h1>Groups individually vs control samples</h1>
+
+    <p style="font-size:0.88rem; color:#374151;">
+        <strong>Control wells:</strong> {{ control_wells | join(', ') }}
+        &nbsp;|&nbsp; <strong>Normalization:</strong> {{ norm_setting }}
+        &nbsp;|&nbsp; Files: {{ n_files }}
+        &nbsp;|&nbsp; Chromatic: {{ chromatic }}
+        &nbsp;|&nbsp; Time unit: {{ time_unit_suffix }}
+    </p>
+
+    <!-- Global controls -->
+    <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px; padding:10px 14px; background:#f5f3ff; border:1px solid #c4b5fd; border-radius:8px;">
+
+        <!-- Row 1: x range + apply + choose individually -->
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <strong style="font-size:0.86rem; color:#3b0764; min-width:60px;">x range:</strong>
+            <label style="font-size:0.82rem; color:#374151;">from</label>
+            <input type="number" id="global-x-from" step="any" placeholder="auto"
+                   style="width:78px; font-size:0.82rem; padding:3px 6px; border:1px solid #d1d5db; border-radius:5px;">
+            <label style="font-size:0.82rem; color:#374151;">to</label>
+            <input type="number" id="global-x-to" step="any" placeholder="auto"
+                   style="width:78px; font-size:0.82rem; padding:3px 6px; border:1px solid #d1d5db; border-radius:5px;">
+            <span style="color:#c4b5fd; margin:0 2px;">|</span>
+            <button type="button" id="global-update-btn"
+                    style="font-size:0.82rem; padding:4px 14px; background:#6d28d9; color:#fff; border:none; border-radius:5px; cursor:pointer;">
+                Update plots
+            </button>
+            <label style="display:inline-flex; align-items:center; gap:5px; font-size:0.82rem; color:#374151; margin-left:4px; cursor:pointer;">
+                <input type="checkbox" id="choose-individually-cb">
+                Choose individually
+            </label>
+            <span id="global-update-error" style="font-size:0.8rem; color:#dc2626; display:none;"></span>
+        </div>
+
+        <!-- Row 2: colors -->
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <strong style="font-size:0.86rem; color:#3b0764; min-width:60px;">colors:</strong>
+            <label style="font-size:0.82rem; color:#374151; display:inline-flex; align-items:center; gap:5px;">
+                Control
+                <input type="color" id="global-control-color" value="#000000"
+                       style="width:32px; height:24px; padding:1px; border:1px solid #d1d5db; border-radius:4px; cursor:pointer;">
+            </label>
+            <label style="font-size:0.82rem; color:#374151; display:inline-flex; align-items:center; gap:5px;">
+                Group
+                <input type="color" id="global-group-color" value="#E69F00"
+                       style="width:32px; height:24px; padding:1px; border:1px solid #d1d5db; border-radius:4px; cursor:pointer;">
+            </label>
+            <span style="font-size:0.78rem; color:#7c3aed;">(click "Update plots" to apply)</span>
+        </div>
+
+        <!-- Row 3: titles -->
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <strong style="font-size:0.86rem; color:#3b0764; min-width:60px;">titles:</strong>
+            <label style="font-size:0.82rem; color:#374151;">x axis</label>
+            <input type="text" id="global-x-label" placeholder="auto"
+                   style="width:110px; font-size:0.82rem; padding:3px 6px; border:1px solid #d1d5db; border-radius:5px;">
+            <label style="font-size:0.82rem; color:#374151;">y axis</label>
+            <input type="text" id="global-y-label" placeholder="auto"
+                   style="width:110px; font-size:0.82rem; padding:3px 6px; border:1px solid #d1d5db; border-radius:5px;">
+            <label style="font-size:0.82rem; color:#374151;">plot title</label>
+            <input type="text" id="global-plot-title" placeholder="default: group name"
+                   style="width:150px; font-size:0.82rem; padding:3px 6px; border:1px solid #d1d5db; border-radius:5px;">
+        </div>
+    </div>
+
+    <!-- Download buttons -->
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; align-items:center;">
+        <button type="button" id="dl-all-btn"
+                style="padding:7px 18px; background:#6d28d9; color:#fff; border:none; border-radius:7px; cursor:pointer; font-size:0.9rem;">
+            Download all as ZIP
+        </button>
+        {% if norm_setting == 'both' %}
+        <button type="button" id="dl-raw-btn"
+                style="padding:7px 14px; background:#374151; color:#fff; border:none; border-radius:7px; cursor:pointer; font-size:0.9rem;">
+            Download raw only
+        </button>
+        <button type="button" id="dl-norm-btn"
+                style="padding:7px 14px; background:#0f766e; color:#fff; border:none; border-radius:7px; cursor:pointer; font-size:0.9rem;">
+            Download normalized only
+        </button>
+        {% endif %}
+    </div>
+
+    <input type="hidden" id="gvc-session-id" value="{{ gvc_session_id }}">
+
+    <!-- Hidden store of all plot ids -->
+    <div id="plot-id-store" style="display:none;">
+        {% for entry in results %}{% for p in entry.plots %}
+        <span data-plot-id="{{ p.plot_id }}" data-normalized="{{ '1' if p.normalized else '0' }}"></span>
+        {% endfor %}{% endfor %}
+    </div>
+
+    <div class="result-grid">
+        {% for entry in results %}
+        <div class="result-card"
+             data-group-name="{{ entry.group_name }}"
+             data-control-wells='{{ control_wells | tojson }}'
+             data-group-wells='{{ entry.group_wells | tojson }}'
+             data-norm-setting="{{ norm_setting }}">
+            <div class="result-card-header">
+                <span>{{ entry.group_name }}</span>
+                <span class="download-links" style="display:flex; gap:8px; align-items:center;">
+                    {% for p in entry.plots %}
+                    <a href="{{ url_for('plots_bp.plot_download', plot_id=p.plot_id) }}"
+                       style="font-size:0.78rem; color:#6d28d9;">
+                        Download{% if norm_setting == 'both' %} {{ 'normalized' if p.normalized else 'raw' }}{% endif %}
+                    </a>
+                    {% endfor %}
+                </span>
+            </div>
+
+            <!-- Per-card controls: shown when "Choose individually" is checked -->
+            <div class="card-controls">
+                <!-- Sub-row A: x range + colors -->
+                <div class="card-controls-row">
+                    <span class="ctrl-label">x from</span>
+                    <input type="number" class="x-from-input ctrl-input" step="any" placeholder="auto" style="width:65px;">
+                    <span class="ctrl-label">to</span>
+                    <input type="number" class="x-to-input ctrl-input" step="any" placeholder="auto" style="width:65px;">
+                    <span class="ctrl-sep">|</span>
+                    <span class="ctrl-label">Control</span>
+                    <input type="color" class="control-color-input"
+                           style="width:28px; height:22px; padding:1px; border:1px solid #d1d5db; border-radius:3px; cursor:pointer;">
+                    <span class="ctrl-label">Group</span>
+                    <input type="color" class="group-color-input"
+                           style="width:28px; height:22px; padding:1px; border:1px solid #d1d5db; border-radius:3px; cursor:pointer;">
+                    <span class="ctrl-sep">|</span>
+                    <button type="button" class="update-btn"
+                            style="font-size:0.79rem; padding:2px 10px; background:#6d28d9; color:#fff; border:none; border-radius:5px; cursor:pointer;">
+                        Update
+                    </button>
+                    <span class="update-error" style="font-size:0.78rem; color:#dc2626; display:none;"></span>
+                </div>
+                <!-- Sub-row B: titles -->
+                <div class="card-controls-row">
+                    <span class="ctrl-label">plot title</span>
+                    <input type="text" class="plot-title-input ctrl-input" placeholder="default: group name" style="width:140px;">
+                    <span class="ctrl-sep">|</span>
+                    <span class="ctrl-label">x axis</span>
+                    <input type="text" class="x-label-input ctrl-input" placeholder="global" style="width:100px;">
+                    <span class="ctrl-label">y axis</span>
+                    <input type="text" class="y-label-input ctrl-input" placeholder="global" style="width:100px;">
+                </div>
+            </div>
+
+            <div class="plot-images-wrap">
+            {% if norm_setting == 'both' and entry.plots | length == 2 %}
+            <div class="both-wrap">
+                {% for p in entry.plots %}
+                <div>
+                    <div style="text-align:center; font-size:0.75rem; color:#6b7280; padding:3px 0; border-bottom:1px solid #f3f4f6;">
+                        {{ 'Normalized' if p.normalized else 'Raw' }}
+                    </div>
+                    <img src="{{ url_for('plots_bp.plot_image', plot_id=p.plot_id) }}"
+                         alt="{{ entry.group_name }}"
+                         title="Click to open in plot editor"
+                         data-wells='{{ entry.plot_wells | tojson }}'
+                         data-normalized="{{ '1' if p.normalized else '0' }}"
+                         data-plot-id="{{ p.plot_id }}"
+                         class="open-in-editor">
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            {% for p in entry.plots %}
+            <img src="{{ url_for('plots_bp.plot_image', plot_id=p.plot_id) }}"
+                 alt="{{ entry.group_name }}"
+                 title="Click to open in plot editor"
+                 data-wells='{{ entry.plot_wells | tojson }}'
+                 data-normalized="{{ '1' if p.normalized else '0' }}"
+                 data-plot-id="{{ p.plot_id }}"
+                 class="open-in-editor">
+            {% endfor %}
+            {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <p style="margin-top:20px;"><a href="/">Home</a></p>
+
+    <script>
+        const gvcSessionId = document.getElementById("gvc-session-id")?.value || "";
+
+        // --- Open in editor ---
+        document.querySelectorAll("img.open-in-editor").forEach(function (img) {
+            img.addEventListener("click", function () {
+                let wells;
+                try { wells = JSON.parse(img.dataset.wells || "[]"); } catch (e) { alert("Could not parse well list."); return; }
+                const normalized = img.dataset.normalized === "1";
+                const form = document.createElement("form");
+                form.method = "post"; form.action = "/plot/from_plate_selection"; form.target = "_blank";
+                const add = function (name, value) {
+                    const inp = document.createElement("input");
+                    inp.type = "hidden"; inp.name = name; inp.value = value;
+                    form.appendChild(inp);
+                };
+                add("mode", "agg");
+                add("wells_json", JSON.stringify(wells));
+                add("normalized_curve", normalized ? "1" : "0");
+                add("gvc_session_id", gvcSessionId);
+                document.body.appendChild(form);
+                form.submit();
+                document.body.removeChild(form);
+            });
+        });
+
+        // --- Read global style inputs ---
+        function getGlobalStyle() {
+            return {
+                controlColor: document.getElementById("global-control-color").value || "#000000",
+                groupColor:   document.getElementById("global-group-color").value   || "#E69F00",
+                xLabel:       document.getElementById("global-x-label").value.trim(),
+                yLabel:       document.getElementById("global-y-label").value.trim(),
+                plotTitle:    document.getElementById("global-plot-title").value.trim(),
+            };
+        }
+
+        // --- Replot a single card ---
+        // styleOverride: object with any subset of {controlColor, groupColor, xLabel, yLabel, plotTitle}
+        // Pass null to use global values for everything.
+        async function replotCard(card, xFrom, xTo, styleOverride) {
+            const groupName    = card.dataset.groupName;
+            const controlWells = JSON.parse(card.dataset.controlWells || "[]");
+            const groupWells   = JSON.parse(card.dataset.groupWells   || "[]");
+            const normSetting  = card.dataset.normSetting;
+            const errEl = card.querySelector(".update-error");
+            errEl.style.display = "none";
+
+            const g = getGlobalStyle();
+            const s = styleOverride || {};
+
+            const controlColor = s.controlColor !== undefined ? s.controlColor : g.controlColor;
+            const groupColor   = s.groupColor   !== undefined ? s.groupColor   : g.groupColor;
+            // Titles: per-card → global → group name fallback for plot title
+            const xLabel    = (s.xLabel    !== undefined ? s.xLabel    : g.xLabel);
+            const yLabel    = (s.yLabel    !== undefined ? s.yLabel    : g.yLabel);
+            const plotTitle = (s.plotTitle  !== undefined ? s.plotTitle  : g.plotTitle) || groupName;
+
+            const body = new URLSearchParams();
+            body.append("gvc_session_id", gvcSessionId);
+            body.append("group_name",     groupName);
+            body.append("norm_setting",   normSetting);
+            body.append("control_color",  controlColor);
+            body.append("group_color",    groupColor);
+            body.append("custom_plot_title", plotTitle);
+            if (xLabel)  body.append("custom_x_label", xLabel);
+            if (yLabel)  body.append("custom_y_label", yLabel);
+            controlWells.forEach(w => body.append("control_well", w));
+            groupWells.forEach(w   => body.append("group_well",   w));
+            if (xFrom !== "" && xFrom !== null) body.append("x_from", xFrom);
+            if (xTo   !== "" && xTo   !== null) body.append("x_to",   xTo);
+
+            const resp = await fetch("/plot/group_vs_control/replot_group", { method: "POST", body });
+            const data = await resp.json();
+            if (data.error) {
+                errEl.textContent = data.error;
+                errEl.style.display = "";
+                return false;
+            }
+
+            // Update download links
+            const dlSpan = card.querySelector(".download-links");
+            if (dlSpan) {
+                dlSpan.innerHTML = data.plots.map(p => {
+                    const label = normSetting === "both" ? ` ${p.normalized ? "normalized" : "raw"}` : "";
+                    return `<a href="/plot/download/${p.plot_id}" style="font-size:0.78rem; color:#6d28d9;">Download${label}</a>`;
+                }).join(" ");
+            }
+
+            // Update images + plot-id-store
+            const wrap = card.querySelector(".plot-images-wrap");
+            if (wrap) {
+                const imgs = wrap.querySelectorAll("img");
+                imgs.forEach((img, i) => {
+                    if (!data.plots[i]) return;
+                    const oldId = img.dataset.plotId;
+                    img.src = `/plot/image/${data.plots[i].plot_id}?t=${Date.now()}`;
+                    img.dataset.plotId = data.plots[i].plot_id;
+                    img.dataset.wells  = JSON.stringify(data.plot_wells);
+                    const storeSpan = document.querySelector(`#plot-id-store [data-plot-id="${oldId}"]`);
+                    if (storeSpan) storeSpan.dataset.plotId = data.plots[i].plot_id;
+                });
+            }
+            return true;
+        }
+
+        // --- Sync per-card color pickers to current global values ---
+        function syncCardColorsToGlobal() {
+            const g = getGlobalStyle();
+            document.querySelectorAll(".result-card").forEach(card => {
+                const cc = card.querySelector(".control-color-input");
+                const gc = card.querySelector(".group-color-input");
+                if (cc) cc.value = g.controlColor;
+                if (gc) gc.value = g.groupColor;
+            });
+        }
+
+        // --- Per-card Update button ---
+        document.querySelectorAll(".result-card").forEach(function (card) {
+            const btn = card.querySelector(".update-btn");
+            if (!btn) return;
+            btn.addEventListener("click", async function () {
+                const xFrom = card.querySelector(".x-from-input").value.trim();
+                const xTo   = card.querySelector(".x-to-input").value.trim();
+                const styleOverride = {
+                    controlColor: card.querySelector(".control-color-input").value,
+                    groupColor:   card.querySelector(".group-color-input").value,
+                    plotTitle:    card.querySelector(".plot-title-input").value.trim(),
+                    xLabel:       card.querySelector(".x-label-input").value.trim(),
+                    yLabel:       card.querySelector(".y-label-input").value.trim(),
+                };
+                btn.disabled = true; btn.textContent = "…";
+                await replotCard(card, xFrom, xTo, styleOverride);
+                btn.disabled = false; btn.textContent = "Update";
+            });
+        });
+
+        // --- "Choose individually" checkbox ---
+        document.getElementById("choose-individually-cb").addEventListener("change", function () {
+            if (this.checked) syncCardColorsToGlobal();
+            document.querySelectorAll(".card-controls").forEach(el => {
+                el.classList.toggle("visible", this.checked);
+            });
+        });
+
+        // --- Global "Update plots" button ---
+        document.getElementById("global-update-btn").addEventListener("click", async function () {
+            const xFrom = document.getElementById("global-x-from").value.trim();
+            const xTo   = document.getElementById("global-x-to").value.trim();
+            const errEl = document.getElementById("global-update-error");
+            errEl.style.display = "none";
+            const btn = this;
+            btn.disabled = true; btn.textContent = "…";
+
+            // Sync x-range inputs on visible per-card bars
+            document.querySelectorAll(".result-card").forEach(card => {
+                const xf = card.querySelector(".x-from-input");
+                const xt = card.querySelector(".x-to-input");
+                if (xf) xf.value = xFrom;
+                if (xt) xt.value = xTo;
+            });
+
+            let anyError = false;
+            for (const card of document.querySelectorAll(".result-card")) {
+                const ok = await replotCard(card, xFrom, xTo, null);
+                if (!ok) anyError = true;
+            }
+            if (anyError) {
+                errEl.textContent = "Error in one or more groups — check individual cards.";
+                errEl.style.display = "";
+            }
+            btn.disabled = false; btn.textContent = "Update plots";
+        });
+
+        // --- Download helpers ---
+        function submitDownload(plotIds) {
+            if (!plotIds.length) return;
+            const form = document.createElement("form");
+            form.method = "post";
+            form.action = "/plot/group_vs_control/download_all";
+            plotIds.forEach(id => {
+                const inp = document.createElement("input");
+                inp.type = "hidden"; inp.name = "plot_ids"; inp.value = id;
+                form.appendChild(inp);
+            });
+            document.body.appendChild(form);
+            form.submit();
+            document.body.removeChild(form);
+        }
+
+        function getAllPlotIds(normalizedFilter) {
+            return [...document.querySelectorAll("#plot-id-store [data-plot-id]")]
+                .filter(s => normalizedFilter === null || (s.dataset.normalized === "1") === normalizedFilter)
+                .map(s => s.dataset.plotId);
+        }
+
+        document.getElementById("dl-all-btn").addEventListener("click", () => submitDownload(getAllPlotIds(null)));
+        {% if norm_setting == 'both' %}
+        document.getElementById("dl-raw-btn").addEventListener("click",  () => submitDownload(getAllPlotIds(false)));
+        document.getElementById("dl-norm-btn").addEventListener("click", () => submitDownload(getAllPlotIds(true)));
+        {% endif %}
+    </script>
+</body>
+</html>

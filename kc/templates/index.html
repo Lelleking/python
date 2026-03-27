@@ -3,6 +3,707 @@
 <head>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <title>aSyn Analyzer</title>
+    <style>
+        .runs-explorer {
+            margin-top: 8px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            background: #ffffff;
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            min-height: 220px;
+            overflow: hidden;
+        }
+        .folders-pane {
+            border-right: 1px solid #e2e8f0;
+            background: #f8fafc;
+            padding: 10px;
+        }
+        .runs-pane {
+            padding: 10px;
+        }
+        .pane-title {
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 8px;
+            color: #334155;
+        }
+        .folder-item, .run-item {
+            padding: 7px 8px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            line-height: 1.2;
+        }
+        .run-item {
+            cursor: grab;
+        }
+        .run-item:active {
+            cursor: grabbing;
+        }
+        .folder-item:hover, .run-item:hover {
+            background: #e2e8f0;
+        }
+        .folder-item.active, .run-item.active {
+            background: #dbeafe;
+            color: #1d4ed8;
+            font-weight: 600;
+        }
+        .folder-item.drop-target {
+            outline: 2px dashed #1d4ed8;
+            background: #eff6ff;
+        }
+        .folder-row {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 6px;
+            align-items: center;
+        }
+        .folder-gear-btn {
+            background: #475569;
+            border: 1px solid #334155;
+            box-shadow: none;
+            padding: 5px 8px;
+            font-size: 12px;
+            line-height: 1;
+            margin: 0;
+        }
+        .folder-list, .run-list {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            max-height: 230px;
+            overflow: auto;
+        }
+        .run-meta {
+            color: #64748b;
+            font-size: 0.78rem;
+            margin-top: 2px;
+        }
+        .run-item-inner {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+        .run-select-cb {
+            margin-top: 2px;
+        }
+        .explorer-actions {
+            margin-top: 10px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            position: relative;
+        }
+        .explorer-empty {
+            color: #94a3b8;
+            font-size: 0.85rem;
+            padding: 8px 6px;
+        }
+        .move-folder-popover {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            z-index: 30;
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.15);
+            padding: 8px;
+        }
+        .move-folder-popover[hidden] {
+            display: none;
+        }
+        .drag-file-ghost {
+            position: fixed;
+            top: -1000px;
+            left: -1000px;
+            font-size: 18px;
+            line-height: 1;
+            padding: 6px 7px;
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+        }
+        .folder-policy-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.45);
+            z-index: 140;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 14px;
+        }
+        .folder-policy-modal.show {
+            display: flex;
+        }
+        .folder-policy-card {
+            width: min(560px, 96vw);
+            max-height: 88vh;
+            overflow: auto;
+            background: #fff;
+            border: 1px solid #cbd5e1;
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: 0 24px 64px rgba(0,0,0,0.28);
+        }
+        .folder-policy-runs {
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            background: #f8fafc;
+            padding: 8px;
+            max-height: 230px;
+            overflow: auto;
+        }
+        .folder-policy-run {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 2px;
+            border-bottom: 1px solid #e2e8f0;
+            font-size: 0.9rem;
+        }
+        .folder-policy-run:last-child {
+            border-bottom: none;
+        }
+        .folder-policy-section {
+            margin-bottom: 8px;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 8px;
+            background: #f8fafc;
+        }
+        .folder-crossed-note {
+            margin-top: 4px;
+            font-size: 0.8rem;
+            color: #475569;
+        }
+        .folder-crossed-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.45);
+            z-index: 150;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 14px;
+        }
+        .folder-crossed-modal.show {
+            display: flex;
+        }
+        .folder-crossed-card {
+            width: min(680px, 96vw);
+            max-height: 90vh;
+            overflow: auto;
+            background: #fff;
+            border: 1px solid #cbd5e1;
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: 0 24px 64px rgba(0,0,0,0.28);
+        }
+        .folder-crossed-columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 8px;
+        }
+        .folder-crossed-list {
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            background: #f8fafc;
+            padding: 8px;
+            max-height: 300px;
+            overflow: auto;
+        }
+        .folder-crossed-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 6px 2px;
+            border-bottom: 1px solid #e2e8f0;
+            font-size: 0.9rem;
+        }
+        .folder-crossed-item:last-child {
+            border-bottom: none;
+        }
+        .folder-crossed-sub {
+            color: #64748b;
+            font-size: 0.78rem;
+            margin-top: 2px;
+        }
+        .auto-group-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.45);
+            z-index: 160;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 14px;
+        }
+        .auto-group-modal.show {
+            display: flex;
+        }
+        .auto-group-card {
+            width: min(860px, 97vw);
+            max-height: 92vh;
+            overflow: auto;
+            background: #fff;
+            border: 1px solid #cbd5e1;
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: 0 24px 64px rgba(0,0,0,0.28);
+        }
+        .auto-group-list {
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            background: #f8fafc;
+            padding: 8px;
+            max-height: 56vh;
+            overflow: auto;
+            margin-top: 8px;
+        }
+        .auto-group-row {
+            padding: 8px 6px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .auto-group-row:last-child {
+            border-bottom: none;
+        }
+        .auto-group-row-top {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .auto-group-token {
+            font-weight: 700;
+            background: #e2e8f0;
+            color: #111827;
+            border-radius: 8px;
+            padding: 2px 8px;
+        }
+        .auto-group-example {
+            margin-top: 4px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.83rem;
+        }
+        .auto-group-examples-wrap {
+            margin-top: 4px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .auto-source-row {
+            margin-top: 6px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 6px 8px;
+            background: #ffffff;
+        }
+        .auto-source-name {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.82rem;
+            margin-top: 2px;
+        }
+        .auto-example-pre, .auto-example-post {
+            color: #6b7280;
+        }
+        .auto-example-hit {
+            color: #111827;
+            font-weight: 700;
+        }
+        .except-toggle {
+            display: none;
+            margin-top: 6px;
+            font-size: 0.8rem;
+            color: #4b5563;
+            cursor: pointer;
+            user-select: none;
+            width: fit-content;
+        }
+        .except-toggle.show {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .except-panel {
+            display: none;
+            margin-top: 6px;
+        }
+        .except-panel.open {
+            display: block;
+        }
+        .grouping-open-btn {
+            background: #0f172a;
+            margin-bottom: 10px;
+        }
+        .grouping-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 120;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 18px;
+            background: rgba(15, 23, 42, 0.48);
+        }
+        .grouping-modal.show {
+            display: flex;
+        }
+        .grouping-modal-card {
+            width: min(1080px, 98vw);
+            max-height: 92vh;
+            overflow: auto;
+            background: #fff;
+            border: 1px solid #cbd5e1;
+            border-radius: 14px;
+            box-shadow: 0 24px 64px rgba(0, 0, 0, 0.28);
+            padding: 16px;
+        }
+        .grouping-modal-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .grouping-main-tabs {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .grouping-main-tab {
+            background: #e2e8f0;
+            color: #0f172a;
+            border: 1px solid #cbd5e1;
+            box-shadow: none;
+            padding: 8px 12px;
+        }
+        .grouping-main-tab.active {
+            background: #1d4ed8;
+            color: #fff;
+            border-color: #1d4ed8;
+        }
+        .grouping-panel {
+            display: none;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            background: #f8fafc;
+            padding: 12px;
+        }
+        .grouping-panel.show {
+            display: block;
+        }
+        .plate-tools-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .plate-tools-row input[type="text"] {
+            max-width: 220px;
+        }
+        .plate-tools-row input[type="number"] {
+            width: 92px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 8px 10px;
+            background: #fff;
+        }
+        .plate-grid-wrap {
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            background: #fff;
+            padding: 10px;
+            overflow: auto;
+            max-height: 52vh;
+        }
+        .plate-grid {
+            display: grid;
+            gap: 4px;
+            align-items: center;
+            width: max-content;
+        }
+        .plate-cell, .plate-axis {
+            min-width: 52px;
+            height: 32px;
+            border-radius: 7px;
+            border: 1px solid #d1d5db;
+            font-size: 12px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+        }
+        .plate-axis {
+            background: #f1f5f9;
+            color: #334155;
+            font-weight: 700;
+            border-style: dashed;
+        }
+        .plate-cell {
+            background: #fff;
+            cursor: pointer;
+            font-weight: 600;
+            color: #111827;
+        }
+        .plate-cell:hover {
+            border-color: #2563eb;
+            box-shadow: inset 0 0 0 1px #2563eb;
+        }
+        .group-list {
+            margin-top: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            background: #fff;
+            padding: 10px;
+            max-height: 220px;
+            overflow: auto;
+        }
+        .group-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 2px;
+            border-bottom: 1px solid #eef2f7;
+            font-size: 0.92rem;
+        }
+        .group-item:last-child {
+            border-bottom: none;
+        }
+        .group-color-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(15, 23, 42, 0.2);
+            flex: 0 0 12px;
+        }
+        .grouping-hint {
+            margin: 4px 0 0 0;
+            font-size: 0.84rem;
+            color: #64748b;
+        }
+        .group-trash-btn {
+            margin-left: auto;
+            background: #ef4444;
+            box-shadow: none;
+            border: 1px solid #dc2626;
+            padding: 5px 8px;
+            font-size: 12px;
+            line-height: 1;
+        }
+        .template-tools-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .template-tools-row input[type="text"], .template-tools-row select {
+            max-width: 260px;
+            min-width: 220px;
+        }
+        .rename-groups-wrap {
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            background: #fff;
+            padding: 10px;
+            margin-top: 10px;
+            max-height: 260px;
+            overflow: auto;
+        }
+        .rename-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .rename-row label {
+            min-width: 150px;
+            font-size: 0.88rem;
+            color: #334155;
+        }
+
+        /* ── Button groups ─────────────────────────────────────────── */
+        .btn-groups-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+        .btn-group { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; min-width: 180px; flex: 1 1 180px; }
+        .btn-group-title { padding: 7px 12px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #fff; }
+        .btn-group button { display: block; width: 100%; text-align: left; border-radius: 0; margin: 0; border-top: 1px solid rgba(255,255,255,0.08); }
+        .btn-group button:first-of-type { border-top: none; }
+
+        /* ── Collapsible details ───────────────────────────────────── */
+        details > summary {
+            cursor: pointer;
+            user-select: none;
+            padding: 6px 10px;
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.92rem;
+            color: #1e293b;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        details > summary::-webkit-details-marker { display: none; }
+        details > summary::before { content: "▶"; font-size: 0.7rem; transition: transform 0.15s; }
+        details[open] > summary::before { transform: rotate(90deg); }
+        details { margin-bottom: 10px; }
+
+        /* ── Plate overview modal ──────────────────────────────────── */
+        .plate-ov-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 3000;
+            background: rgba(15,23,42,0.55);
+            align-items: flex-start;
+            justify-content: center;
+            padding: 20px 10px;
+            overflow-y: auto;
+        }
+        .plate-ov-modal.show { display: flex; }
+        .plate-ov-card {
+            background: #fff;
+            border-radius: 14px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.28);
+            width: min(1200px, 98vw);
+            padding: 18px 20px 20px;
+            position: relative;
+        }
+        .plate-ov-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .plate-ov-options {
+            display: flex;
+            gap: 14px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+            font-size: 0.85rem;
+        }
+        .plate-ov-group-controls {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 8px;
+            padding: 8px 10px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+        .plate-ov-action-bar {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        .po-cell {
+            width: 80px;
+            height: 62px;
+            border: 1px solid #e2e8f0;
+            cursor: pointer;
+            position: relative;
+            background: #fff;
+            vertical-align: top;
+            padding: 0;
+            user-select: none;
+            transition: border-color 0.08s;
+        }
+        .po-cell:hover { border-color: #93c5fd; }
+        .po-cell.po-selected { border: 2px solid #2563eb; box-shadow: inset 0 0 0 1px #2563eb; }
+        .po-cell.po-no-data { background: #f8fafc; cursor: default; }
+        .po-cell.po-no-data:hover { border-color: #e2e8f0; }
+        .po-cell-inner { display:flex; flex-direction:column; width:100%; height:100%; padding:2px 3px 1px 3px; box-sizing:border-box; }
+        .po-cell-label { font-size:0.6rem; font-weight:600; color:#374151; line-height:1.2; flex:0 0 auto; }
+        .po-cell-halftime { font-size:0.55rem; color:#6b7280; line-height:1; flex:0 0 auto; }
+        .po-cell-svg-wrap { flex:1 1 0; width:100%; min-height:0; }
+        .po-cell-svg-wrap svg { display:block; width:100%; height:100%; }
+        .po-header-cell { text-align:center; font-size:0.68rem; font-weight:700; color:#64748b; padding:2px 4px; min-width:80px; }
+        .po-row-label { font-size:0.68rem; font-weight:700; color:#64748b; padding:2px 6px 2px 2px; vertical-align:middle; text-align:center; }
+        .po-grid-table { border-collapse:collapse; }
+        .po-grid-wrap { overflow-x:auto; }
+        .po-group-legend { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; min-height:20px; }
+        .po-group-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 7px 2px 5px; border-radius:999px; font-size:0.75rem; border:1px solid #e2e8f0; background:#f8fafc; }
+        .po-group-dot { width:9px; height:9px; border-radius:999px; flex:0 0 9px; }
+        .po-group-trash { background:none; border:none; cursor:pointer; padding:0 0 0 3px; font-size:0.75rem; color:#9ca3af; line-height:1; }
+        .po-loading { text-align:center; padding:40px; font-size:1rem; color:#64748b; }
+
+        /* ── Chromatic selection modal ─────────────────────────────── */
+        .chrom-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 4000;
+            background: rgba(15,23,42,0.6);
+            align-items: flex-start;
+            justify-content: center;
+            padding: 20px 10px;
+            overflow-y: auto;
+        }
+        .chrom-modal.show { display: flex; }
+        .chrom-card {
+            background: #fff;
+            border-radius: 14px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+            width: min(1200px, 98vw);
+            padding: 18px 20px 20px;
+        }
+        .chrom-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .chrom-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 10px;
+            padding: 8px 10px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 0.82rem;
+            align-items: center;
+        }
+        .chrom-legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .chrom-swatch {
+            width: 22px;
+            height: 4px;
+            border-radius: 2px;
+            display: inline-block;
+        }
+        .chrom-select-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+    </style>
 </head>
 <body>
     {% if train_metrics %}
@@ -15,7 +716,9 @@
 
     <h1>Upload Aggregation Files</h1>
 
-    <div style="margin-bottom:12px; padding:10px 12px; border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc;">
+    <details open>
+        <summary>Account</summary>
+        <div style="padding:10px 12px; border:1px solid #e2e8f0; border-radius:0 0 10px 10px; border-top:none; background:#f8fafc; margin-bottom:2px;">
         {% if user_email %}
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
             <strong>Signed in as {{ user_email }}</strong>
@@ -23,17 +726,6 @@
                 <button type="submit" style="background:#64748b;">Log out</button>
             </form>
         </div>
-        {% if saved_runs and saved_runs|length > 0 %}
-        <form action="/runs/select" method="post" style="margin-top:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-            <label for="run-id">Load saved run</label>
-            <select id="run-id" name="run_id">
-                {% for run in saved_runs %}
-                <option value="{{ run.id }}">{{ run.label }} | chromatic {{ run.selected_chromatic }} | {{ run.time_unit }}</option>
-                {% endfor %}
-            </select>
-            <button type="submit" style="background:#0f766e;">Load run</button>
-        </form>
-        {% endif %}
         {% else %}
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
             <form action="/auth/login" method="post" style="margin:0; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
@@ -54,28 +746,79 @@
         <p style="margin:8px 0 0 2px; font-size:0.82rem; color:#64748b;">
             Sign in to keep processed runs so you can continue later without re-uploading files.
         </p>
-    </div>
+        </div>
+    </details>
+
+    {% if user_email and saved_runs and saved_runs|length > 0 %}
+    <details>
+        <summary>Saved runs ({{ saved_runs|length }})</summary>
+        <div style="padding:8px; border:1px solid #e2e8f0; border-radius:0 0 10px 10px; border-top:none; background:#f8fafc; margin-bottom:2px;">
+        <form id="saved-run-form" action="/runs/select" method="post" style="margin-top:4px;">
+            <input type="hidden" id="run-id-input" name="run_id" value="">
+            <input type="hidden" id="run-name-input" name="run_name" value="">
+            <input type="hidden" id="folder-name-input" name="folder_name" value="">
+            <input type="hidden" id="run-ids-json-input" name="run_ids_json" value="">
+            <div class="runs-explorer">
+                <div class="folders-pane">
+                    <div class="pane-title">Folders</div>
+                    <div id="folder-list" class="folder-list"></div>
+                </div>
+                <div class="runs-pane">
+                    <div class="pane-title" id="runs-pane-title">Runs</div>
+                    <div id="run-list" class="run-list"></div>
+                    <div class="explorer-actions">
+                        <button type="submit" id="load-run-btn" style="background:#0f766e;">Load run</button>
+                        <button type="button" id="rename-run-btn" style="background:#475569;">Rename run</button>
+                        <button type="button" id="delete-run-btn" style="background:#b91c1c;">Delete run</button>
+                        <button type="button" id="delete-selected-runs-btn" style="background:#991b1b;">Delete selected</button>
+                        <button type="button" id="move-folder-btn" style="background:#334155;">Move to folder</button>
+                        <button type="button" id="new-folder-btn" style="background:#1e293b;">New folder</button>
+                        <div id="move-folder-popover" class="move-folder-popover" hidden>
+                            <select id="move-folder-select" style="min-width:150px;"></select>
+                            <button type="button" id="move-folder-apply-btn" style="background:#334155;">Move</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </form>
+        </div>
+    </details>
+    {% endif %}
 
     {% if current_files and current_files|length > 0 %}
-    <h3>Current files (kept between runs)</h3>
-    <ul>
-        {% for filename in current_files %}
-        <li>{{ filename }}</li>
-        {% endfor %}
-    </ul>
-    <form action="/files/clear" method="post" style="margin-bottom:12px;">
-        <button type="submit">Clear files</button>
-    </form>
+    <details open>
+        <summary>Current files ({{ current_files|length }})</summary>
+        <div style="padding:8px 12px; border:1px solid #e2e8f0; border-radius:0 0 10px 10px; border-top:none; background:#f8fafc; margin-bottom:2px;">
+        <ul style="margin:4px 0 8px 0; padding-left:20px;">
+            {% for filename in current_files %}
+            <li>{{ filename }}</li>
+            {% endfor %}
+        </ul>
+        {% if user_email and upload_set_id %}
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+            <input type="text" id="save-run-name-input" placeholder="run name (optional)" style="max-width:200px;">
+            <button type="button" id="save-run-btn" style="background:#0f766e;">Save run</button>
+            <span id="save-run-status" style="font-size:0.82rem; color:#0f766e; display:none;">Saved!</span>
+        </div>
+        {% endif %}
+        <form action="/files/clear" method="post" style="margin:0;">
+            <button type="submit">Clear files</button>
+        </form>
+        </div>
+    </details>
     {% endif %}
+    <button type="button" id="open-grouping-btn" class="grouping-open-btn">Grouping</button>
 
     <form action="/analyze" method="post" enctype="multipart/form-data">
         <input type="hidden" name="upload_set_id" value="{{ upload_set_id or '' }}">
+        <input type="hidden" id="forced-chromatic" name="force_chromatic" value="">
         <label for="time-unit">Time unit</label>
         <select id="time-unit" name="time_unit">
             <option value="hours" {% if current_time_unit == 'hours' %}selected{% endif %}>Hours</option>
             <option value="minutes" {% if current_time_unit == 'minutes' %}selected{% endif %}>Minutes</option>
             <option value="seconds" {% if current_time_unit == 'seconds' %}selected{% endif %}>Seconds</option>
         </select>
+        {% if not (current_files and current_files|length > 0) %}
         <label for="upload-format">File format</label>
         <select id="upload-format" name="upload_format">
             <option value="auto" selected>Auto-detect (recommended)</option>
@@ -90,36 +833,2538 @@
             Names like <code>file1</code>, <code>file2</code> are only a backup check.
         </p>
         <button type="button" id="add-file-btn" style="background:#475569;">Add file</button>
-        <button type="submit" formaction="/analyze" style="background:#2563eb;">Calculate t½</button>
-        <button type="submit" formaction="/plot/select?plot_type=raw" style="background:#0891b2;">Plot aggregation curve</button>
-        <button type="submit" formaction="/plot/select?plot_type=normalized" style="background:#7c3aed;">Plot normalized aggregation curve</button>
-        <button type="submit" formaction="/aggregation_analysis/start" style="background:#0f766e;">Aggregation analysis</button>
-        <button type="submit" formaction="/control_sigmoid/start" style="background:#ea580c;">Control sigmodial curve fitting</button>
-        <button type="submit" formaction="/convert_amylofit" style="background:#16a34a;">Convert to amylofit format</button>
+        {% endif %}
+
+        <div class="btn-groups-row">
+            <div class="btn-group">
+                <div class="btn-group-title" style="background:#1e3a5f;">Analyze</div>
+                <button type="submit" formaction="/analyze" style="background:#2563eb;">Calculate t½</button>
+                <button type="submit" formaction="/aggregation_analysis/start" style="background:#0f766e;">Aggregation analysis</button>
+                <button type="submit" formaction="/aggregation_event_ai/start" style="background:#7c3aed;">Aggregation event AI</button>
+                <button type="submit" formaction="/control_sigmoid/start" style="background:#ea580c;">Control sigmodial curve fitting</button>
+            </div>
+            <div class="btn-group">
+                <div class="btn-group-title" style="background:#0f4c4c;">Make plots</div>
+                <button type="button" id="open-plate-overview-btn" style="background:#0f172a;">Plate overview</button>
+                <button type="submit" formaction="/plot/select?plot_type=raw" style="background:#0891b2;">Plot aggregation curve</button>
+                <button type="submit" formaction="/smart_summary" formmethod="get" style="background:#111827;">Smart summary</button>
+            </div>
+            <div class="btn-group">
+                <div class="btn-group-title" style="background:#1e293b;">Other</div>
+                <button type="submit" formaction="/convert_amylofit" style="background:#16a34a;">Convert to amylofit format</button>
+            </div>
+        </div>
     </form>
+
+    <div id="grouping-modal" class="grouping-modal" aria-hidden="true">
+        <div class="grouping-modal-card">
+            <div class="grouping-modal-head">
+                <h2 style="margin:0;">Grouping</h2>
+                <button type="button" id="close-grouping-btn" style="background:#475569;">Close</button>
+            </div>
+            <div class="grouping-main-tabs">
+                <button type="button" class="grouping-main-tab active" data-grouping-tab="plate-layout">Plate layout</button>
+                <button type="button" class="grouping-main-tab" data-grouping-tab="smart-grouping">Smart grouping</button>
+                <button type="button" class="grouping-main-tab" data-grouping-tab="manual-grouping">Manual grouping</button>
+                <button type="button" class="grouping-main-tab" data-grouping-tab="saved-templates">Saved group templates</button>
+            </div>
+
+            <div id="grouping-panel-plate-layout" class="grouping-panel show">
+                <div class="plate-tools-row">
+                    <label for="plate-cols-input">Width</label>
+                    <input id="plate-cols-input" type="number" min="1" max="48" value="12">
+                    <label for="plate-rows-input">Height</label>
+                    <input id="plate-rows-input" type="number" min="1" max="48" value="8">
+                    <button type="button" id="build-plate-btn" style="background:#0f766e;">Build plate</button>
+                </div>
+                <div class="plate-tools-row">
+                    <input id="plate-group-name-input" type="text" placeholder="group name">
+                    <button type="button" id="toggle-plate-group-btn" style="background:#1d4ed8;">Toggle group</button>
+                    <button type="button" id="save-plate-group-btn" style="background:#059669;">Save group</button>
+                    <button type="button" id="load-current-run-groups-btn" style="background:#334155;">Load current run grouping</button>
+                    <span id="plate-active-group-label" class="grouping-hint">No active group.</span>
+                </div>
+                <p class="grouping-hint">When group is toggled on, click cells to assign/remove them. Top-left cell is always A01.</p>
+                <div class="plate-grid-wrap">
+                    <div id="plate-grid" class="plate-grid"></div>
+                </div>
+                <div class="group-list">
+                    <div style="font-weight:700; margin-bottom:6px;">Saved groups</div>
+                    <div id="saved-plate-groups-list" class="grouping-hint">No groups saved yet.</div>
+                </div>
+            </div>
+
+            <div id="grouping-panel-smart-grouping" class="grouping-panel">
+                <p class="grouping-hint">Smart grouping menu is ready here. Tell me your exact grouping rules and I will wire them in.</p>
+            </div>
+
+            <div id="grouping-panel-manual-grouping" class="grouping-panel">
+                <p class="grouping-hint">Manual grouping menu is ready here. Tell me how you want this to differ from Plate layout and I will build it.</p>
+            </div>
+
+            <div id="grouping-panel-saved-templates" class="grouping-panel">
+                <div class="template-tools-row">
+                    <input id="template-name-input" type="text" placeholder="template name">
+                    <button type="button" id="save-template-btn" style="background:#0f766e;">Save current layout as template</button>
+                    <button type="button" id="save-template-from-run-btn" style="background:#0b7285;">Create template from current run grouping</button>
+                </div>
+                <div class="template-tools-row">
+                    <select id="template-select">
+                        <option value="">Select template</option>
+                    </select>
+                    <button type="button" id="load-template-groups-btn" style="background:#334155;">Load groups</button>
+                    <button type="button" id="apply-template-btn" style="background:#1d4ed8;">Apply template</button>
+                </div>
+                <p class="grouping-hint">Template is only applyable when all template wells exist in the current plate layout.</p>
+                <div id="rename-groups-wrap" class="rename-groups-wrap">
+                    <div class="grouping-hint">No template loaded yet.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="folder-policy-modal" class="folder-policy-modal" aria-hidden="true">
+        <div class="folder-policy-card">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px;">
+                <h3 id="folder-policy-title" style="margin:0;">Folder options</h3>
+                <button type="button" id="folder-policy-close-btn" style="background:#475569;">Close</button>
+            </div>
+            <div class="folder-policy-section">
+                <label><input type="checkbox" id="folder-policy-global-grouping"> Global grouping</label>
+                <div style="margin-top:6px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                    <span style="font-size:0.82rem; color:#475569;">Source grouping:</span>
+                    <select id="folder-policy-grouping-source" style="min-width:180px;">
+                        <option value="">Auto (broadest grouping)</option>
+                    </select>
+                </div>
+                <div id="folder-policy-except-grouping-toggle" class="except-toggle">except: <span>▼</span></div>
+                <div id="folder-policy-except-grouping-panel" class="except-panel">
+                    <div class="folder-policy-runs" id="folder-policy-runs-grouping"></div>
+                </div>
+            </div>
+            <div class="folder-policy-section">
+                <label><input type="checkbox" id="folder-policy-global-m0"> Global m0</label>
+                <div id="folder-policy-except-m0-toggle" class="except-toggle">except: <span>▼</span></div>
+                <div id="folder-policy-except-m0-panel" class="except-panel">
+                    <div class="folder-policy-runs" id="folder-policy-runs-m0"></div>
+                </div>
+            </div>
+            <p class="grouping-hint" style="margin-bottom:8px;">When enabled, saved grouping/m0 from one run in this folder is reused for all runs in the folder.</p>
+            <div class="folder-policy-section">
+                <button type="button" id="folder-make-crossed-btn" style="background:#0f766e;">maked crossed files</button>
+                <div class="folder-crossed-note">Requires Global grouping enabled for this folder.</div>
+            </div>
+            <div style="margin-top:10px; display:flex; justify-content:flex-end; gap:8px;">
+                <button type="button" id="folder-policy-save-btn" style="background:#1d4ed8;">Save folder options</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="folder-crossed-modal" class="folder-crossed-modal" aria-hidden="true">
+        <div class="folder-crossed-card">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px;">
+                <h3 id="folder-crossed-title" style="margin:0;">Maked crossed files</h3>
+                <button type="button" id="folder-crossed-close-btn" style="background:#475569;">Close</button>
+            </div>
+            <p class="grouping-hint" id="folder-crossed-note">Select source runs and global groups to combine.</p>
+            <div class="folder-crossed-columns">
+                <div>
+                    <div class="pane-title" style="margin-bottom:6px;">Files to combine from</div>
+                    <div id="folder-crossed-runs" class="folder-crossed-list"></div>
+                </div>
+                <div>
+                    <div class="pane-title" style="margin-bottom:6px;">Global groups to combine</div>
+                    <div id="folder-crossed-groups" class="folder-crossed-list"></div>
+                </div>
+            </div>
+            <div style="margin-top:10px; display:flex; justify-content:flex-end; gap:8px;">
+                <button type="button" id="folder-crossed-create-btn" style="background:#0f766e;">Create crossed files</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="auto-grouping-modal" class="auto-group-modal" aria-hidden="true">
+        <div class="auto-group-card">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                <h3 id="auto-grouping-title" style="margin:0;">Automatic grouping suggestions</h3>
+                <button type="button" id="auto-grouping-close-btn" style="background:#475569;">Close</button>
+            </div>
+            <p class="grouping-hint" id="auto-grouping-subtitle">
+                Choose which common values to use for grouping.
+            </p>
+            <div style="margin-top:6px; border:1px solid #e2e8f0; border-radius:8px; padding:8px; background:#f8fafc;">
+                <div style="font-size:0.9rem; color:#0f172a; font-weight:600;">Standard grouping: same source file</div>
+                <div id="auto-group-source-preview" class="grouping-hint" style="margin-top:4px;"></div>
+                <div id="auto-group-source-list"></div>
+                <button type="button" id="auto-group-toggle-common-btn" style="margin-top:8px; background:#334155;">
+                    Make grouping based on common found values
+                </button>
+            </div>
+            <div id="auto-grouping-list" class="auto-group-list" style="display:none;"></div>
+            <div style="margin-top:10px; display:flex; justify-content:flex-end; gap:8px;">
+                <button type="button" id="auto-grouping-skip-btn" style="background:#64748b;">Skip</button>
+                <button type="button" id="auto-grouping-apply-btn" style="background:#0f766e;">Apply selected grouping</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Plate overview modal ──────────────────────────────────────────── -->
+    <div id="plate-ov-modal" class="plate-ov-modal" aria-hidden="true">
+      <div class="plate-ov-card">
+        <div class="plate-ov-head">
+          <h2 style="margin:0; font-size:1.2rem;">Plate overview</h2>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span id="po-info-bar" style="font-size:0.82rem;color:#64748b;"></span>
+            <button type="button" id="close-plate-ov-btn" style="background:#475569;">Close</button>
+          </div>
+        </div>
+        <div id="po-content">
+          <div class="po-loading">Loading plate data…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Chromatic selection modal ──────────────────────────────────────── -->
+    <div id="chrom-modal" class="chrom-modal" aria-hidden="true">
+      <div class="chrom-card">
+        <div class="chrom-head">
+          <h2 style="margin:0;font-size:1.2rem;">Choose chromatic</h2>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span id="chrom-info" style="font-size:0.82rem;color:#64748b;"></span>
+            <button type="button" id="close-chrom-btn" style="background:#475569;">Cancel</button>
+          </div>
+        </div>
+        <div id="chrom-content">
+          <div class="po-loading">Loading chromatic data…</div>
+        </div>
+      </div>
+    </div>
 
     <script>
         const maxFiles = 10;
         const fileInputs = document.getElementById("file-inputs");
         const addFileBtn = document.getElementById("add-file-btn");
+        const renameRunBtn = document.getElementById("rename-run-btn");
+        const deleteRunBtn = document.getElementById("delete-run-btn");
+        const deleteSelectedRunsBtn = document.getElementById("delete-selected-runs-btn");
+        const moveFolderBtn = document.getElementById("move-folder-btn");
+        const newFolderBtn = document.getElementById("new-folder-btn");
+        const moveFolderSelect = document.getElementById("move-folder-select");
+        const moveFolderPopover = document.getElementById("move-folder-popover");
+        const moveFolderApplyBtn = document.getElementById("move-folder-apply-btn");
+        const loadRunBtn = document.getElementById("load-run-btn");
+        const savedRunForm = document.getElementById("saved-run-form");
+        const runIdInput = document.getElementById("run-id-input");
+        const runNameInput = document.getElementById("run-name-input");
+        const folderNameInput = document.getElementById("folder-name-input");
+        const runIdsJsonInput = document.getElementById("run-ids-json-input");
+        const folderListEl = document.getElementById("folder-list");
+        const runListEl = document.getElementById("run-list");
+        const runsPaneTitle = document.getElementById("runs-pane-title");
+        const openGroupingBtn = document.getElementById("open-grouping-btn");
+        const closeGroupingBtn = document.getElementById("close-grouping-btn");
+        const groupingModal = document.getElementById("grouping-modal");
+        const groupingTabs = Array.from(document.querySelectorAll(".grouping-main-tab"));
+        const plateColsInput = document.getElementById("plate-cols-input");
+        const plateRowsInput = document.getElementById("plate-rows-input");
+        const buildPlateBtn = document.getElementById("build-plate-btn");
+        const plateGridEl = document.getElementById("plate-grid");
+        const plateGroupNameInput = document.getElementById("plate-group-name-input");
+        const togglePlateGroupBtn = document.getElementById("toggle-plate-group-btn");
+        const savePlateGroupBtn = document.getElementById("save-plate-group-btn");
+        const loadCurrentRunGroupsBtn = document.getElementById("load-current-run-groups-btn");
+        const plateActiveGroupLabel = document.getElementById("plate-active-group-label");
+        const savedPlateGroupsList = document.getElementById("saved-plate-groups-list");
+        const templateNameInput = document.getElementById("template-name-input");
+        const saveTemplateBtn = document.getElementById("save-template-btn");
+        const templateSelect = document.getElementById("template-select");
+        const loadTemplateGroupsBtn = document.getElementById("load-template-groups-btn");
+        const applyTemplateBtn = document.getElementById("apply-template-btn");
+        const renameGroupsWrap = document.getElementById("rename-groups-wrap");
+        const saveTemplateFromRunBtn = document.getElementById("save-template-from-run-btn");
+        const currentRunGroups = {{ current_run_groups|tojson if current_run_groups else "{}" }};
+        const currentUploadSetId = {{ (upload_set_id or "")|tojson }};
+        const runsDataGlobal = {{ saved_runs|tojson if saved_runs else "[]" }};
+        const folderPolicies = {{ folder_policies|tojson if folder_policies else "{}" }};
+        const folderPolicyModal = document.getElementById("folder-policy-modal");
+        const folderPolicyCloseBtn = document.getElementById("folder-policy-close-btn");
+        const folderPolicySaveBtn = document.getElementById("folder-policy-save-btn");
+        const folderPolicyTitle = document.getElementById("folder-policy-title");
+        const folderPolicyGlobalGrouping = document.getElementById("folder-policy-global-grouping");
+        const folderPolicyGlobalM0 = document.getElementById("folder-policy-global-m0");
+        const folderPolicyGroupingSource = document.getElementById("folder-policy-grouping-source");
+        const folderPolicyExceptGroupingToggle = document.getElementById("folder-policy-except-grouping-toggle");
+        const folderPolicyExceptGroupingPanel = document.getElementById("folder-policy-except-grouping-panel");
+        const folderPolicyRunsGrouping = document.getElementById("folder-policy-runs-grouping");
+        const folderPolicyExceptM0Toggle = document.getElementById("folder-policy-except-m0-toggle");
+        const folderPolicyExceptM0Panel = document.getElementById("folder-policy-except-m0-panel");
+        const folderPolicyRunsM0 = document.getElementById("folder-policy-runs-m0");
+        const folderMakeCrossedBtn = document.getElementById("folder-make-crossed-btn");
+        const folderCrossedModal = document.getElementById("folder-crossed-modal");
+        const folderCrossedCloseBtn = document.getElementById("folder-crossed-close-btn");
+        const folderCrossedCreateBtn = document.getElementById("folder-crossed-create-btn");
+        const folderCrossedRuns = document.getElementById("folder-crossed-runs");
+        const folderCrossedGroups = document.getElementById("folder-crossed-groups");
+        const folderCrossedTitle = document.getElementById("folder-crossed-title");
+        const folderCrossedNote = document.getElementById("folder-crossed-note");
+        const autoGroupingModal = document.getElementById("auto-grouping-modal");
+        const autoGroupingTitle = document.getElementById("auto-grouping-title");
+        const autoGroupingSubtitle = document.getElementById("auto-grouping-subtitle");
+        const autoGroupingList = document.getElementById("auto-grouping-list");
+        const autoGroupingCloseBtn = document.getElementById("auto-grouping-close-btn");
+        const autoGroupingSkipBtn = document.getElementById("auto-grouping-skip-btn");
+        const autoGroupingApplyBtn = document.getElementById("auto-grouping-apply-btn");
+        const autoGroupSourcePreview = document.getElementById("auto-group-source-preview");
+        const autoGroupSourceList = document.getElementById("auto-group-source-list");
+        const autoGroupToggleCommonBtn = document.getElementById("auto-group-toggle-common-btn");
 
-        addFileBtn.addEventListener("click", function () {
-            const currentInputs = fileInputs.querySelectorAll('input[type="file"]').length;
-            if (currentInputs >= maxFiles) {
-                addFileBtn.disabled = true;
+        const platePalette = ["#93c5fd", "#f9a8d4", "#86efac", "#fcd34d", "#a5b4fc", "#67e8f9", "#fdba74", "#d8b4fe", "#bef264", "#fca5a5"];
+        const GROUP_TEMPLATE_STORAGE_KEY = "grouping_templates_v1";
+        const plateState = {
+            cols: 12,
+            rows: 8,
+            assignments: {},
+            groups: [],
+            currentGroup: null,
+            groupModeOn: false,
+            dragPaintOn: false,
+            dragMode: "",
+            suppressNextCellClick: false,
+            loadedTemplateGroups: null,
+        };
+
+        if (addFileBtn && fileInputs) {
+            addFileBtn.addEventListener("click", function () {
+                const currentInputs = fileInputs.querySelectorAll('input[type="file"]').length;
+                if (currentInputs >= maxFiles) {
+                    addFileBtn.disabled = true;
+                    return;
+                }
+
+                const input = document.createElement("input");
+                input.type = "file";
+                input.name = "files";
+                input.accept = ".csv,.dat";
+                fileInputs.appendChild(input);
+
+                if (currentInputs + 1 >= maxFiles) {
+                    addFileBtn.disabled = true;
+                }
+            });
+        }
+
+        if (renameRunBtn && savedRunForm && runNameInput && runIdInput) {
+            renameRunBtn.addEventListener("click", function () {
+                if (!runIdInput.value) return;
+                const newName = window.prompt("Enter a new name for this run:");
+                if (newName === null) return;
+                runNameInput.value = newName.trim();
+                savedRunForm.action = "/runs/rename";
+                savedRunForm.method = "post";
+                savedRunForm.submit();
+            });
+        }
+        if (deleteRunBtn && savedRunForm && runIdInput) {
+            deleteRunBtn.addEventListener("click", function () {
+                if (!runIdInput.value) return;
+                const rid = String(runIdInput.value || "").trim();
+                const runObj = (runsDataGlobal || []).find((r) => String(r.id || "") === rid) || null;
+                const runLabel = runObj ? String(runObj.label || rid) : rid;
+                const ok = window.confirm(`Delete run permanently?\n\n${runLabel}`);
+                if (!ok) return;
+                savedRunForm.action = "/runs/delete";
+                savedRunForm.method = "post";
+                savedRunForm.submit();
+            });
+        }
+        if (deleteSelectedRunsBtn && savedRunForm && runIdsJsonInput) {
+            deleteSelectedRunsBtn.addEventListener("click", function () {
+                const selected = Array.from(document.querySelectorAll(".run-select-cb"))
+                    .filter((cb) => cb.checked)
+                    .map((cb) => String(cb.value || ""));
+                if (!selected.length) return;
+                const labels = selected.map((rid) => {
+                    const runObj = (runsDataGlobal || []).find((r) => String(r.id || "") === rid);
+                    return runObj ? String(runObj.label || rid) : rid;
+                });
+                const preview = labels.slice(0, 8).join("\n");
+                const more = labels.length > 8 ? `\n...and ${labels.length - 8} more` : "";
+                const ok = window.confirm(`Delete ${labels.length} selected run(s)?\n\n${preview}${more}`);
+                if (!ok) return;
+                runIdsJsonInput.value = JSON.stringify(selected);
+                savedRunForm.action = "/runs/bulk_delete";
+                savedRunForm.method = "post";
+                savedRunForm.submit();
+            });
+        }
+
+        if (moveFolderBtn && savedRunForm && folderNameInput && runIdInput && moveFolderSelect) {
+            moveFolderBtn.addEventListener("click", function () {
+                if (!runIdInput.value) return;
+                if (!moveFolderPopover) return;
+                moveFolderPopover.hidden = !moveFolderPopover.hidden;
+                if (!moveFolderPopover.hidden) {
+                    moveFolderSelect.focus();
+                }
+            });
+        }
+        if (moveFolderApplyBtn && savedRunForm && folderNameInput && runIdInput && moveFolderSelect) {
+            moveFolderApplyBtn.addEventListener("click", function () {
+                if (!runIdInput.value) return;
+                folderNameInput.value = moveFolderSelect.value || "";
+                savedRunForm.action = "/runs/folder";
+                savedRunForm.method = "post";
+                savedRunForm.submit();
+            });
+        }
+        document.addEventListener("click", function (evt) {
+            if (!moveFolderPopover || moveFolderPopover.hidden) return;
+            const target = evt.target;
+            if (target === moveFolderBtn || moveFolderPopover.contains(target)) return;
+            moveFolderPopover.hidden = true;
+        });
+
+        if (savedRunForm && folderListEl && runListEl && runIdInput) {
+            const runsData = runsDataGlobal;
+            let selectedFolder = "__all__";
+            let selectedRunId = "";
+            const bulkSelected = new Set();
+            function updateDeleteSelectedVisibility() {
+                if (!deleteSelectedRunsBtn) return;
+                deleteSelectedRunsBtn.style.display = (bulkSelected.size > 1) ? "inline-block" : "none";
+            }
+
+            function foldersFromRuns() {
+                const set = new Set();
+                runsData.forEach((r) => set.add((r.folder_name || "").trim()));
+                return ["__all__", "", ...Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b))];
+            }
+
+            function folderLabel(folderKey) {
+                if (folderKey === "__all__") return "All runs";
+                if (folderKey === "") return "Unfoldered";
+                return folderKey;
+            }
+
+            function visibleRuns() {
+                return runsData.filter((r) => {
+                    const f = (r.folder_name || "").trim();
+                    if (selectedFolder === "__all__") return true;
+                    return f === selectedFolder;
+                });
+            }
+
+            function renderFolders() {
+                folderListEl.innerHTML = "";
+                foldersFromRuns().forEach((f) => {
+                    const row = document.createElement("div");
+                    row.className = "folder-row";
+                    const div = document.createElement("div");
+                    div.className = "folder-item" + (selectedFolder === f ? " active" : "");
+                    div.textContent = "📁 " + folderLabel(f);
+                    div.dataset.folderKey = f;
+                    div.addEventListener("click", function () {
+                        selectedFolder = f;
+                        const vis = visibleRuns();
+                        selectedRunId = vis.length ? vis[0].id : "";
+                        runIdInput.value = selectedRunId;
+                        renderFolders();
+                        renderRuns();
+                    });
+                    div.addEventListener("dragover", function (evt) {
+                        if (f === "__all__") return;
+                        evt.preventDefault();
+                        div.classList.add("drop-target");
+                    });
+                    div.addEventListener("dragleave", function () {
+                        div.classList.remove("drop-target");
+                    });
+                    div.addEventListener("drop", function (evt) {
+                        div.classList.remove("drop-target");
+                        if (f === "__all__") return;
+                        evt.preventDefault();
+                        const runId = evt.dataTransfer.getData("text/plain");
+                        if (!runId) return;
+                        runIdInput.value = runId;
+                        folderNameInput.value = (f === "" ? "" : f);
+                        savedRunForm.action = "/runs/folder";
+                        savedRunForm.method = "post";
+                        savedRunForm.submit();
+                    });
+                    row.appendChild(div);
+                    if (f !== "__all__") {
+                        const gear = document.createElement("button");
+                        gear.type = "button";
+                        gear.className = "folder-gear-btn";
+                        gear.title = "Folder options";
+                        gear.textContent = "⚙";
+                        gear.addEventListener("click", function (evt) {
+                            evt.stopPropagation();
+                            openFolderPolicyModal(f === "" ? "__UNFOLDERED__" : f);
+                        });
+                        row.appendChild(gear);
+                    } else {
+                        const spacer = document.createElement("span");
+                        spacer.style.width = "28px";
+                        row.appendChild(spacer);
+                    }
+                    folderListEl.appendChild(row);
+                });
+            }
+
+            function renderRuns() {
+                runListEl.innerHTML = "";
+                const vis = visibleRuns();
+                runsPaneTitle.textContent = "Runs: " + folderLabel(selectedFolder);
+                if (!vis.length) {
+                    const empty = document.createElement("div");
+                    empty.className = "explorer-empty";
+                    empty.textContent = "No runs in this folder.";
+                    runListEl.appendChild(empty);
+                    runIdInput.value = "";
+                    if (loadRunBtn) loadRunBtn.disabled = true;
+                    return;
+                }
+                if (!selectedRunId || !vis.some((r) => r.id === selectedRunId)) {
+                    selectedRunId = vis[0].id;
+                }
+                runIdInput.value = selectedRunId;
+                if (loadRunBtn) loadRunBtn.disabled = false;
+                vis.forEach((r) => {
+                    const row = document.createElement("div");
+                    row.className = "run-item" + (r.id === selectedRunId ? " active" : "");
+                    row.setAttribute("draggable", "true");
+                    row.innerHTML = `
+                        <div class="run-item-inner">
+                            <input type="checkbox" class="run-select-cb" value="${r.id}" ${bulkSelected.has(r.id) ? "checked" : ""}>
+                            <div>
+                                <div>${r.label}</div>
+                                <div class="run-meta">chromatic ${r.selected_chromatic} | ${r.time_unit}</div>
+                            </div>
+                        </div>
+                    `;
+                    const cb = row.querySelector(".run-select-cb");
+                    if (cb) {
+                        cb.addEventListener("click", function (evt) {
+                            evt.stopPropagation();
+                        });
+                        cb.addEventListener("change", function (evt) {
+                            if (evt.target.checked) {
+                                bulkSelected.add(r.id);
+                            } else {
+                                bulkSelected.delete(r.id);
+                            }
+                            updateDeleteSelectedVisibility();
+                        });
+                    }
+                    row.addEventListener("click", function () {
+                        selectedRunId = r.id;
+                        runIdInput.value = r.id;
+                        renderRuns();
+                    });
+                    row.addEventListener("dragstart", function (evt) {
+                        evt.dataTransfer.setData("text/plain", r.id);
+                        evt.dataTransfer.effectAllowed = "move";
+                        const ghost = document.createElement("div");
+                        ghost.className = "drag-file-ghost";
+                        ghost.textContent = "📄";
+                        document.body.appendChild(ghost);
+                        evt.dataTransfer.setDragImage(ghost, 10, 10);
+                        setTimeout(() => {
+                            if (ghost.parentNode) ghost.parentNode.removeChild(ghost);
+                        }, 0);
+                    });
+                    runListEl.appendChild(row);
+                });
+                updateDeleteSelectedVisibility();
+            }
+
+            function renderMoveFolderSelect() {
+                if (!moveFolderSelect) return;
+                moveFolderSelect.innerHTML = "";
+                const folders = foldersFromRuns().filter((f) => f !== "__all__");
+                folders.forEach((f) => {
+                    const opt = document.createElement("option");
+                    opt.value = f;
+                    opt.textContent = folderLabel(f);
+                    moveFolderSelect.appendChild(opt);
+                });
+            }
+
+            if (newFolderBtn && folderNameInput) {
+                newFolderBtn.addEventListener("click", function () {
+                    if (!runIdInput.value) return;
+                    const newFolder = window.prompt("New folder name:");
+                    if (newFolder === null) return;
+                    folderNameInput.value = newFolder.trim();
+                    savedRunForm.action = "/runs/folder";
+                    savedRunForm.method = "post";
+                    savedRunForm.submit();
+                });
+            }
+
+            renderMoveFolderSelect();
+            renderFolders();
+            renderRuns();
+            updateDeleteSelectedVisibility();
+        }
+
+        function getRunsInFolder(folderName) {
+            const key = (folderName === "__UNFOLDERED__") ? "" : String(folderName || "").trim();
+            return runsDataGlobal.filter((r) => String((r.folder_name || "").trim()) === key);
+        }
+
+        let activePolicyFolder = "";
+        let activeCrossedFolder = "";
+        let pendingAutoGroupingPayload = null;
+        let pendingCreatedCrossedRunIds = [];
+        function syncExceptUi() {
+            const groupingOn = !!(folderPolicyGlobalGrouping && folderPolicyGlobalGrouping.checked);
+            const m0On = !!(folderPolicyGlobalM0 && folderPolicyGlobalM0.checked);
+            if (folderPolicyExceptGroupingToggle) {
+                folderPolicyExceptGroupingToggle.classList.toggle("show", groupingOn);
+            }
+            if (folderPolicyExceptM0Toggle) {
+                folderPolicyExceptM0Toggle.classList.toggle("show", m0On);
+            }
+            if (!groupingOn && folderPolicyExceptGroupingPanel) {
+                folderPolicyExceptGroupingPanel.classList.remove("open");
+            }
+            if (!m0On && folderPolicyExceptM0Panel) {
+                folderPolicyExceptM0Panel.classList.remove("open");
+            }
+            if (folderMakeCrossedBtn) {
+                folderMakeCrossedBtn.disabled = !groupingOn;
+                folderMakeCrossedBtn.title = groupingOn
+                    ? ""
+                    : "Enable Global grouping first to use maked crossed files.";
+            }
+        }
+
+        function renderExceptRunList(containerEl, checkboxClass, selectedIds, runs) {
+            if (!containerEl) return;
+            containerEl.innerHTML = "";
+            if (!runs.length) {
+                const p = document.createElement("div");
+                p.className = "grouping-hint";
+                p.textContent = "No runs in this folder.";
+                containerEl.appendChild(p);
+                return;
+            }
+            runs.forEach((r) => {
+                const row = document.createElement("label");
+                row.className = "folder-policy-run";
+                const cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.className = checkboxClass;
+                cb.value = r.id;
+                cb.checked = (selectedIds || []).includes(r.id);
+                const txt = document.createElement("span");
+                txt.textContent = `${r.label}`;
+                row.appendChild(cb);
+                row.appendChild(txt);
+                containerEl.appendChild(row);
+            });
+        }
+
+        function openFolderPolicyModal(folderName) {
+            if (!folderPolicyModal) return;
+            activePolicyFolder = String(folderName || "").trim();
+            const displayName = activePolicyFolder === "__UNFOLDERED__" ? "Unfoldered" : activePolicyFolder;
+            const policyKey = activePolicyFolder === "__UNFOLDERED__" ? "" : activePolicyFolder;
+            const policy = folderPolicies[activePolicyFolder] || {
+                global_grouping: false,
+                global_m0: false,
+                except_grouping_run_ids: [],
+                except_m0_run_ids: [],
+            };
+            const fallbackPolicy = folderPolicies[policyKey] || null;
+            const effectivePolicy = fallbackPolicy || policy;
+            if (folderPolicyTitle) folderPolicyTitle.textContent = `Folder options: ${displayName}`;
+            if (folderPolicyGlobalGrouping) folderPolicyGlobalGrouping.checked = !!effectivePolicy.global_grouping;
+            if (folderPolicyGlobalM0) folderPolicyGlobalM0.checked = !!effectivePolicy.global_m0;
+            const runs = getRunsInFolder(activePolicyFolder);
+            if (folderPolicyGroupingSource) {
+                const previous = String((effectivePolicy && effectivePolicy.grouping_source_run_id) || "");
+                folderPolicyGroupingSource.innerHTML = "";
+                const autoOpt = document.createElement("option");
+                autoOpt.value = "";
+                autoOpt.textContent = "Auto (broadest grouping)";
+                folderPolicyGroupingSource.appendChild(autoOpt);
+                runs.forEach((r) => {
+                    if (!r || !r.id) return;
+                    if (String(r.label || "").toLowerCase().startsWith("crossed ")) return;
+                    const opt = document.createElement("option");
+                    opt.value = String(r.id);
+                    opt.textContent = String(r.label || r.id);
+                    folderPolicyGroupingSource.appendChild(opt);
+                });
+                folderPolicyGroupingSource.value = previous;
+                if (folderPolicyGroupingSource.value !== previous) {
+                    folderPolicyGroupingSource.value = "";
+                }
+            }
+            renderExceptRunList(folderPolicyRunsGrouping, "folder-policy-except-grouping", effectivePolicy.except_grouping_run_ids || [], runs);
+            renderExceptRunList(folderPolicyRunsM0, "folder-policy-except-m0", effectivePolicy.except_m0_run_ids || [], runs);
+            if (folderPolicyExceptGroupingPanel) folderPolicyExceptGroupingPanel.classList.remove("open");
+            if (folderPolicyExceptM0Panel) folderPolicyExceptM0Panel.classList.remove("open");
+            syncExceptUi();
+            folderPolicyModal.classList.add("show");
+            folderPolicyModal.setAttribute("aria-hidden", "false");
+        }
+
+        function closeFolderCrossedModal() {
+            if (!folderCrossedModal) return;
+            folderCrossedModal.classList.remove("show");
+            folderCrossedModal.setAttribute("aria-hidden", "true");
+        }
+        function closeAutoGroupingModal() {
+            if (!autoGroupingModal) return;
+            autoGroupingModal.classList.remove("show");
+            autoGroupingModal.setAttribute("aria-hidden", "true");
+            pendingAutoGroupingPayload = null;
+        }
+        async function discardPendingCrossedRunsIfAny() {
+            if (!pendingCreatedCrossedRunIds.length) return;
+            const body = new URLSearchParams();
+            body.set("run_ids_json", JSON.stringify(pendingCreatedCrossedRunIds));
+            try {
+                await fetch("/folders/crossed/discard", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+                    body: body.toString(),
+                });
+            } catch (_) {}
+            pendingCreatedCrossedRunIds = [];
+        }
+
+        function escapeHtml(s) {
+            return String(s || "")
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll("\"", "&quot;")
+                .replaceAll("'", "&#39;");
+        }
+
+        function highlightedExample(well, token) {
+            const w = String(well || "");
+            const t = String(token || "");
+            if (!w || !t) {
+                return `<span class="auto-example-pre">${escapeHtml(w)}</span>`;
+            }
+            const lowW = w.toLowerCase();
+            const lowT = t.toLowerCase();
+            const i = lowW.indexOf(lowT);
+            if (i < 0) {
+                return `<span class="auto-example-pre">${escapeHtml(w)}</span>`;
+            }
+            const a = w.slice(0, i);
+            const b = w.slice(i, i + t.length);
+            const c = w.slice(i + t.length);
+            return (
+                `<span class="auto-example-pre">${escapeHtml(a)}</span>` +
+                `<span class="auto-example-hit">${escapeHtml(b)}</span>` +
+                `<span class="auto-example-post">${escapeHtml(c)}</span>`
+            );
+        }
+
+        function openAutoGroupingModalFromPayload(payload) {
+            const candidates = (payload && payload.auto_grouping_candidates) || {};
+            const sameFileCandidates = (payload && payload.same_file_grouping_candidates) || {};
+            const sameFileDisplay = (payload && payload.same_file_grouping_display) || {};
+            const created = (payload && payload.created) || [];
+            const runInfo = {};
+            created.forEach((r) => {
+                runInfo[String(r.run_id || "")] = r;
+            });
+            const runIds = Object.keys(candidates);
+            if (!runIds.length || !autoGroupingModal || !autoGroupingList) {
+                return false;
+            }
+            pendingAutoGroupingPayload = payload;
+            pendingCreatedCrossedRunIds = created.map((r) => String(r.run_id || "")).filter(Boolean);
+            autoGroupingList.innerHTML = "";
+            if (autoGroupingTitle) {
+                autoGroupingTitle.textContent = "Automatic grouping suggestions";
+            }
+            if (autoGroupingSubtitle) {
+                autoGroupingSubtitle.textContent = "Select common values once. The same selected values are applied across all new crossed files where they exist.";
+            }
+            if (autoGroupSourcePreview) {
+                const tags = new Set();
+                Object.values(sameFileCandidates).forEach((m) => {
+                    Object.keys(m || {}).forEach((k) => tags.add(String(k)));
+                });
+                autoGroupSourcePreview.textContent = tags.size
+                    ? `Source-file groups found: ${Array.from(tags).slice(0, 10).join(", ")}`
+                    : "No source-file grouping candidates found.";
+            }
+            if (autoGroupSourceList) {
+                autoGroupSourceList.innerHTML = "";
+                Object.entries(sameFileDisplay).forEach(([rid, meta]) => {
+                    const groupLabel = String((meta || {}).label || "");
+                    const fullName = String((meta || {}).full_name || "");
+                    const uncommon = Array.isArray((meta || {}).uncommon_tokens) ? meta.uncommon_tokens : [];
+                    const row = document.createElement("div");
+                    row.className = "auto-source-row";
+                    const shown = uncommon.slice(0, 6).join(", ");
+                    row.innerHTML = `
+                        <div style="font-size:0.83rem; color:#334155;">
+                            Group label: <span class="auto-group-token">${escapeHtml(groupLabel)}</span>
+                        </div>
+                        <div class="auto-source-name">${highlightedExample(fullName, (uncommon[0] || ""))}</div>
+                    `;
+                    // Better highlight: emphasize each uncommon token in the full name.
+                    if (fullName && uncommon.length) {
+                        let rendered = escapeHtml(fullName);
+                        uncommon.slice(0, 6).forEach((tok) => {
+                            const escTok = escapeHtml(tok);
+                            rendered = rendered.replace(
+                                new RegExp(escTok, "ig"),
+                                `<span class="auto-example-hit">${escTok}</span>`
+                            );
+                        });
+                        const nameEl = row.querySelector(".auto-source-name");
+                        if (nameEl) nameEl.innerHTML = rendered;
+                    }
+                    autoGroupSourceList.appendChild(row);
+                });
+            }
+            if (autoGroupingList) {
+                autoGroupingList.style.display = "none";
+            }
+            if (autoGroupToggleCommonBtn) {
+                autoGroupToggleCommonBtn.textContent = "Make grouping based on common found values";
+            }
+            const tokenMap = {};
+            runIds.forEach((rid) => {
+                const map = candidates[rid] || {};
+                Object.entries(map).forEach(([token, wells]) => {
+                    const uniqWells = Array.from(new Set((Array.isArray(wells) ? wells : []).map((w) => String(w))));
+                    if (uniqWells.length < 2) return;
+                    if (!tokenMap[token]) {
+                        tokenMap[token] = {
+                            token: token,
+                            runs: [],
+                            wells: [],
+                        };
+                    }
+                    tokenMap[token].runs.push(rid);
+                    tokenMap[token].wells.push(...uniqWells);
+                });
+            });
+            const tokenRows = Object.values(tokenMap).sort((a, b) => a.token.localeCompare(b.token));
+            tokenRows.forEach((entry) => {
+                const uniqWells = Array.from(new Set(entry.wells));
+                const row = document.createElement("div");
+                row.className = "auto-group-row";
+                const examples = uniqWells.slice(0, 4).map((w) => {
+                    return `<div class="auto-group-example">${highlightedExample(w, entry.token)}</div>`;
+                }).join("");
+                row.innerHTML = `
+                        <label class="auto-group-row-top">
+                            <input type="checkbox" class="auto-grouping-choice-token" data-token="${escapeHtml(entry.token)}">
+                            <span>Use common value</span>
+                            <span class="auto-group-token">${escapeHtml(entry.token)}</span>
+                        <span style="color:#475569; font-size:0.82rem;">
+                            (${uniqWells.length} wells total, ${entry.runs.length} crossed files)
+                        </span>
+                    </label>
+                    <div class="auto-group-examples-wrap">${examples}</div>
+                `;
+                autoGroupingList.appendChild(row);
+            });
+            autoGroupingModal.classList.add("show");
+            autoGroupingModal.setAttribute("aria-hidden", "false");
+            return true;
+        }
+        if (autoGroupToggleCommonBtn && autoGroupingList) {
+            autoGroupToggleCommonBtn.addEventListener("click", function () {
+                const isOpen = autoGroupingList.style.display !== "none";
+                autoGroupingList.style.display = isOpen ? "none" : "block";
+                autoGroupToggleCommonBtn.textContent = isOpen
+                    ? "Make grouping based on common found values"
+                    : "Hide common-value grouping options";
+            });
+        }
+
+        function renderCrossedRunList(runs) {
+            if (!folderCrossedRuns) return;
+            folderCrossedRuns.innerHTML = "";
+            if (!runs.length) {
+                const p = document.createElement("div");
+                p.className = "grouping-hint";
+                p.textContent = "No files available in this folder.";
+                folderCrossedRuns.appendChild(p);
+                return;
+            }
+            runs.forEach((r) => {
+                const label = document.createElement("label");
+                label.className = "folder-crossed-item";
+                const cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.className = "folder-crossed-run";
+                cb.value = r.id;
+                cb.checked = true;
+                const textWrap = document.createElement("div");
+                const title = document.createElement("div");
+                title.textContent = r.label;
+                const sub = document.createElement("div");
+                sub.className = "folder-crossed-sub";
+                sub.textContent = (r.group_names || []).length
+                    ? `Groups: ${(r.group_names || []).join(", ")}`
+                    : "No global groups in this run";
+                textWrap.appendChild(title);
+                textWrap.appendChild(sub);
+                label.appendChild(cb);
+                label.appendChild(textWrap);
+                folderCrossedRuns.appendChild(label);
+            });
+        }
+
+        function renderCrossedGroupList(groupNames) {
+            if (!folderCrossedGroups) return;
+            folderCrossedGroups.innerHTML = "";
+            if (!groupNames.length) {
+                const p = document.createElement("div");
+                p.className = "grouping-hint";
+                p.textContent = "No global groups found.";
+                folderCrossedGroups.appendChild(p);
+                return;
+            }
+            groupNames.forEach((name) => {
+                const label = document.createElement("label");
+                label.className = "folder-crossed-item";
+                const cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.className = "folder-crossed-group";
+                cb.value = name;
+                cb.checked = true;
+                const textWrap = document.createElement("div");
+                textWrap.textContent = name;
+                label.appendChild(cb);
+                label.appendChild(textWrap);
+                folderCrossedGroups.appendChild(label);
+            });
+        }
+
+        async function openCrossedModalFromFolderPolicy() {
+            if (!activePolicyFolder) return;
+            const folderKey = activePolicyFolder;
+            const q = new URLSearchParams();
+            q.set("folder_name", folderKey);
+            let payload = null;
+            try {
+                const resp = await fetch(`/folders/crossed/options?${q.toString()}`);
+                payload = await resp.json();
+                if (!resp.ok || !payload || !payload.ok) {
+                    const msg = (payload && (payload.message || payload.error)) || "Could not load crossed-file options.";
+                    window.alert(msg);
+                    return;
+                }
+            } catch (_) {
+                window.alert("Could not load crossed-file options.");
                 return;
             }
 
-            const input = document.createElement("input");
-            input.type = "file";
-            input.name = "files";
-            input.accept = ".csv,.dat";
-            fileInputs.appendChild(input);
+            activeCrossedFolder = folderKey;
+            const displayName = folderKey === "__UNFOLDERED__" ? "Unfoldered" : (payload.folder_name || folderKey);
+            if (folderCrossedTitle) {
+                folderCrossedTitle.textContent = `Maked crossed files: ${displayName}`;
+            }
+            if (folderCrossedNote) {
+                folderCrossedNote.textContent = "Select files and global groups. One crossed file is created per selected group.";
+            }
+            renderCrossedRunList(payload.runs || []);
+            renderCrossedGroupList(payload.group_names || []);
+            if (folderCrossedModal) {
+                folderCrossedModal.classList.add("show");
+                folderCrossedModal.setAttribute("aria-hidden", "false");
+            }
+        }
 
-            if (currentInputs + 1 >= maxFiles) {
-                addFileBtn.disabled = true;
+        if (folderPolicyGlobalGrouping) {
+            folderPolicyGlobalGrouping.addEventListener("change", syncExceptUi);
+        }
+        if (folderPolicyGlobalM0) {
+            folderPolicyGlobalM0.addEventListener("change", syncExceptUi);
+        }
+        if (folderPolicyExceptGroupingToggle && folderPolicyExceptGroupingPanel) {
+            folderPolicyExceptGroupingToggle.addEventListener("click", function () {
+                folderPolicyExceptGroupingPanel.classList.toggle("open");
+            });
+        }
+        if (folderPolicyExceptM0Toggle && folderPolicyExceptM0Panel) {
+            folderPolicyExceptM0Toggle.addEventListener("click", function () {
+                folderPolicyExceptM0Panel.classList.toggle("open");
+            });
+        }
+
+        if (folderPolicyCloseBtn && folderPolicyModal) {
+            folderPolicyCloseBtn.addEventListener("click", function () {
+                folderPolicyModal.classList.remove("show");
+                folderPolicyModal.setAttribute("aria-hidden", "true");
+            });
+        }
+        if (folderPolicyModal) {
+            folderPolicyModal.addEventListener("click", function (evt) {
+                if (evt.target === folderPolicyModal) {
+                    folderPolicyModal.classList.remove("show");
+                    folderPolicyModal.setAttribute("aria-hidden", "true");
+                }
+            });
+        }
+        if (folderPolicySaveBtn) {
+            folderPolicySaveBtn.addEventListener("click", async function () {
+                if (!activePolicyFolder) return;
+                const exceptGroupingIds = Array.from(document.querySelectorAll(".folder-policy-except-grouping"))
+                    .filter((cb) => cb.checked)
+                    .map((cb) => cb.value);
+                const exceptM0Ids = Array.from(document.querySelectorAll(".folder-policy-except-m0"))
+                    .filter((cb) => cb.checked)
+                    .map((cb) => cb.value);
+                const body = new URLSearchParams();
+                body.set("folder_name", activePolicyFolder);
+                body.set("global_grouping", folderPolicyGlobalGrouping && folderPolicyGlobalGrouping.checked ? "1" : "0");
+                body.set("global_m0", folderPolicyGlobalM0 && folderPolicyGlobalM0.checked ? "1" : "0");
+                body.set("grouping_source_run_id", folderPolicyGroupingSource ? (folderPolicyGroupingSource.value || "") : "");
+                body.set("except_grouping_run_ids_json", JSON.stringify(exceptGroupingIds));
+                body.set("except_m0_run_ids_json", JSON.stringify(exceptM0Ids));
+                try {
+                    const resp = await fetch("/folders/policy", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+                        body: body.toString(),
+                    });
+                    if (!resp.ok) {
+                        window.alert("Could not save folder options.");
+                        return;
+                    }
+                    folderPolicies[activePolicyFolder] = {
+                        global_grouping: folderPolicyGlobalGrouping && folderPolicyGlobalGrouping.checked,
+                        global_m0: folderPolicyGlobalM0 && folderPolicyGlobalM0.checked,
+                        grouping_source_run_id: folderPolicyGroupingSource ? (folderPolicyGroupingSource.value || "") : "",
+                        except_grouping_run_ids: exceptGroupingIds,
+                        except_m0_run_ids: exceptM0Ids,
+                    };
+                    folderPolicyModal.classList.remove("show");
+                    folderPolicyModal.setAttribute("aria-hidden", "true");
+                    window.location.reload();
+                } catch (_) {
+                    window.alert("Could not save folder options.");
+                }
+            });
+        }
+        if (folderMakeCrossedBtn) {
+            folderMakeCrossedBtn.addEventListener("click", function () {
+                if (folderMakeCrossedBtn.disabled) return;
+                openCrossedModalFromFolderPolicy();
+            });
+        }
+        if (folderCrossedCloseBtn) {
+            folderCrossedCloseBtn.addEventListener("click", closeFolderCrossedModal);
+        }
+        if (folderCrossedModal) {
+            folderCrossedModal.addEventListener("click", function (evt) {
+                if (evt.target === folderCrossedModal) {
+                    closeFolderCrossedModal();
+                }
+            });
+        }
+        if (folderCrossedCreateBtn) {
+            folderCrossedCreateBtn.addEventListener("click", async function () {
+                const selectedRunIds = Array.from(document.querySelectorAll(".folder-crossed-run"))
+                    .filter((cb) => cb.checked)
+                    .map((cb) => cb.value);
+                const selectedGroups = Array.from(document.querySelectorAll(".folder-crossed-group"))
+                    .filter((cb) => cb.checked)
+                    .map((cb) => cb.value);
+                if (!selectedRunIds.length) {
+                    window.alert("Select at least one file.");
+                    return;
+                }
+                if (!selectedGroups.length) {
+                    window.alert("Select at least one global group.");
+                    return;
+                }
+                const body = new URLSearchParams();
+                body.set("folder_name", activeCrossedFolder);
+                body.set("run_ids_json", JSON.stringify(selectedRunIds));
+                body.set("group_names_json", JSON.stringify(selectedGroups));
+                try {
+                    const resp = await fetch("/folders/crossed/create", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+                        body: body.toString(),
+                    });
+                    const payload = await resp.json();
+                    if (!resp.ok || !payload || !payload.ok) {
+                        const msg = (payload && (payload.message || payload.error)) || "Could not create crossed files.";
+                        window.alert(msg);
+                        return;
+                    }
+                    closeFolderCrossedModal();
+                    if (folderPolicyModal) {
+                        folderPolicyModal.classList.remove("show");
+                        folderPolicyModal.setAttribute("aria-hidden", "true");
+                    }
+                    const opened = openAutoGroupingModalFromPayload(payload);
+                    if (!opened) {
+                        window.location.reload();
+                    }
+                } catch (_) {
+                    window.alert("Could not create crossed files.");
+                }
+            });
+        }
+        if (autoGroupingCloseBtn) {
+            autoGroupingCloseBtn.addEventListener("click", async function () {
+                await discardPendingCrossedRunsIfAny();
+                closeAutoGroupingModal();
+                window.location.reload();
+            });
+        }
+        if (autoGroupingSkipBtn) {
+            autoGroupingSkipBtn.addEventListener("click", async function () {
+                await discardPendingCrossedRunsIfAny();
+                closeAutoGroupingModal();
+                window.location.reload();
+            });
+        }
+        if (autoGroupingModal) {
+            autoGroupingModal.addEventListener("click", async function (evt) {
+                if (evt.target === autoGroupingModal) {
+                    await discardPendingCrossedRunsIfAny();
+                    closeAutoGroupingModal();
+                    window.location.reload();
+                }
+            });
+        }
+        if (autoGroupingApplyBtn) {
+            autoGroupingApplyBtn.addEventListener("click", async function () {
+                const src = pendingAutoGroupingPayload;
+                const candidates = (src && src.auto_grouping_candidates) || {};
+                const sameFileCandidates = (src && src.same_file_grouping_candidates) || {};
+                const selectedTokens = Array.from(document.querySelectorAll(".auto-grouping-choice-token"))
+                    .filter((cb) => cb.checked)
+                    .map((cb) => (cb.dataset.token || "").trim())
+                    .filter(Boolean);
+                const runGroups = {};
+                Object.keys(candidates).forEach((rid) => {
+                    const map = candidates[rid] || {};
+                    selectedTokens.forEach((token) => {
+                        const wells = map[token];
+                        if (!Array.isArray(wells) || wells.length < 2) return;
+                        if (!runGroups[rid]) runGroups[rid] = {};
+                        runGroups[rid][token] = wells;
+                    });
+                });
+                // Always include grouping by same source file as standard.
+                Object.keys(sameFileCandidates).forEach((rid) => {
+                    const srcMap = sameFileCandidates[rid] || {};
+                    Object.entries(srcMap).forEach(([sourceTag, wells]) => {
+                        if (!Array.isArray(wells) || wells.length < 2) return;
+                        if (!runGroups[rid]) runGroups[rid] = {};
+                        const groupName = `${sourceTag}`;
+                        runGroups[rid][groupName] = wells;
+                    });
+                });
+                if (!Object.keys(runGroups).length) {
+                    closeAutoGroupingModal();
+                    window.location.reload();
+                    return;
+                }
+                const body2 = new URLSearchParams();
+                body2.set("run_groups_json", JSON.stringify(runGroups));
+                try {
+                    await fetch("/folders/crossed/apply_auto_grouping", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+                        body: body2.toString(),
+                    });
+                    closeFolderCrossedModal();
+                } catch (_) {
+                } finally {
+                    pendingCreatedCrossedRunIds = [];
+                    closeAutoGroupingModal();
+                    window.location.reload();
+                }
+            });
+        }
+
+        function toRowLetters(index) {
+            let n = Number(index) + 1;
+            let out = "";
+            while (n > 0) {
+                const rem = (n - 1) % 26;
+                out = String.fromCharCode(65 + rem) + out;
+                n = Math.floor((n - 1) / 26);
+            }
+            return out;
+        }
+
+        function toWellId(rowIndex, colIndex) {
+            const row = toRowLetters(rowIndex);
+            const col = String(colIndex + 1).padStart(2, "0");
+            return `${row}${col}`;
+        }
+
+        function findGroupById(groupId) {
+            return plateState.groups.find((g) => g.id === groupId) || null;
+        }
+
+        function parseWellId(well) {
+            const m = /^([A-Z]+)(\d+)$/.exec(String(well || "").toUpperCase());
+            if (!m) return null;
+            const letters = m[1];
+            const col = parseInt(m[2], 10);
+            let rowIndex = 0;
+            for (let i = 0; i < letters.length; i++) {
+                rowIndex = rowIndex * 26 + (letters.charCodeAt(i) - 64);
+            }
+            return {
+                rowIndex: rowIndex - 1,
+                colIndex: col - 1,
+            };
+        }
+
+        function wellInCurrentBounds(well) {
+            const p = parseWellId(well);
+            if (!p) return false;
+            return p.rowIndex >= 0 && p.rowIndex < plateState.rows && p.colIndex >= 0 && p.colIndex < plateState.cols;
+        }
+
+        function inferPlateSizeFromGroups(groupsDict) {
+            let maxRow = 0;
+            let maxCol = 0;
+            Object.values(groupsDict || {}).forEach((arr) => {
+                (Array.isArray(arr) ? arr : []).forEach((w) => {
+                    const p = parseWellId(w);
+                    if (!p) return;
+                    maxRow = Math.max(maxRow, p.rowIndex + 1);
+                    maxCol = Math.max(maxCol, p.colIndex + 1);
+                });
+            });
+            return {
+                rows: Math.max(1, maxRow || plateState.rows || 8),
+                cols: Math.max(1, maxCol || plateState.cols || 12),
+            };
+        }
+
+        function groupsDictFromPlateState() {
+            const out = {};
+            plateState.groups.forEach((g) => {
+                out[g.name] = (g.cells || []).slice().sort();
+            });
+            return out;
+        }
+
+        function loadGroupsDictIntoPlate(groupsDict, opts) {
+            const options = opts || {};
+            const size = inferPlateSizeFromGroups(groupsDict || {});
+            if (options.resize !== false) {
+                plateState.rows = size.rows;
+                plateState.cols = size.cols;
+                if (plateRowsInput) plateRowsInput.value = String(plateState.rows);
+                if (plateColsInput) plateColsInput.value = String(plateState.cols);
+            }
+            plateState.assignments = {};
+            plateState.groups = [];
+            let idx = 0;
+            Object.entries(groupsDict || {}).forEach(([name, cells]) => {
+                const gid = `group_${Date.now()}_${idx}_${Math.random().toString(16).slice(2, 6)}`;
+                const color = platePalette[idx % platePalette.length];
+                const cleanedCells = (Array.isArray(cells) ? cells : [])
+                    .map((w) => String(w || "").trim().toUpperCase())
+                    .filter((w) => !!w && wellInCurrentBounds(w));
+                const g = { id: gid, name: name || `Group ${idx + 1}`, color: color, cells: cleanedCells };
+                plateState.groups.push(g);
+                cleanedCells.forEach((w) => {
+                    plateState.assignments[w] = gid;
+                });
+                idx += 1;
+            });
+            plateState.currentGroup = null;
+            plateState.groupModeOn = false;
+            if (togglePlateGroupBtn) togglePlateGroupBtn.textContent = "Toggle group";
+            setActiveGroupHint();
+            renderSavedGroups();
+            renderPlateGrid();
+        }
+
+        function setActiveGroupHint() {
+            if (!plateActiveGroupLabel) return;
+            if (!plateState.currentGroup) {
+                plateActiveGroupLabel.textContent = "No active group.";
+                return;
+            }
+            const stateText = plateState.groupModeOn ? "ON" : "OFF";
+            plateActiveGroupLabel.textContent = `Active: ${plateState.currentGroup.name || "(unnamed)"} (${stateText})`;
+        }
+
+        function renderSavedGroups() {
+            if (!savedPlateGroupsList) return;
+            if (!plateState.groups.length) {
+                savedPlateGroupsList.textContent = "No groups saved yet.";
+                return;
+            }
+            savedPlateGroupsList.innerHTML = "";
+            plateState.groups.forEach((g) => {
+                const row = document.createElement("div");
+                row.className = "group-item";
+                const dot = document.createElement("span");
+                dot.className = "group-color-dot";
+                dot.style.background = g.color;
+                const text = document.createElement("span");
+                const cells = (g.cells || []).slice().sort().join(", ");
+                text.textContent = `${g.name}: ${cells || "-"}`;
+                const removeBtn = document.createElement("button");
+                removeBtn.type = "button";
+                removeBtn.className = "group-trash-btn";
+                removeBtn.textContent = "🗑";
+                removeBtn.title = "Delete group";
+                removeBtn.addEventListener("click", function () {
+                    if (!window.confirm(`Delete group "${g.name}"?`)) return;
+                    plateState.groups = plateState.groups.filter((x) => x.id !== g.id);
+                    Object.keys(plateState.assignments).forEach((wellId) => {
+                        if (plateState.assignments[wellId] === g.id) {
+                            delete plateState.assignments[wellId];
+                        }
+                    });
+                    if (plateState.currentGroup && plateState.currentGroup.id === g.id) {
+                        plateState.currentGroup = null;
+                        plateState.groupModeOn = false;
+                        togglePlateGroupBtn.textContent = "Toggle group";
+                        setActiveGroupHint();
+                    }
+                    renderSavedGroups();
+                    renderPlateGrid();
+                });
+                row.appendChild(dot);
+                row.appendChild(text);
+                row.appendChild(removeBtn);
+                savedPlateGroupsList.appendChild(row);
+            });
+        }
+
+        function applyCellVisual(cellEl, groupId) {
+            if (!cellEl) return;
+            if (!groupId) {
+                cellEl.style.background = "#ffffff";
+                cellEl.style.borderColor = "#d1d5db";
+                cellEl.style.color = "#111827";
+                return;
+            }
+            const group = findGroupById(groupId) || (plateState.currentGroup && plateState.currentGroup.id === groupId ? plateState.currentGroup : null);
+            if (!group) return;
+            cellEl.style.background = group.color;
+            cellEl.style.borderColor = "rgba(15,23,42,0.28)";
+            cellEl.style.color = "#0f172a";
+        }
+
+        function renderPlateGrid() {
+            if (!plateGridEl) return;
+            plateGridEl.innerHTML = "";
+            plateGridEl.style.gridTemplateColumns = `56px repeat(${plateState.cols}, minmax(52px, 52px))`;
+
+            const corner = document.createElement("div");
+            corner.className = "plate-axis";
+            corner.textContent = " ";
+            plateGridEl.appendChild(corner);
+
+            for (let c = 0; c < plateState.cols; c++) {
+                const header = document.createElement("div");
+                header.className = "plate-axis";
+                header.textContent = String(c + 1).padStart(2, "0");
+                plateGridEl.appendChild(header);
+            }
+
+            for (let r = 0; r < plateState.rows; r++) {
+                const rowAxis = document.createElement("div");
+                rowAxis.className = "plate-axis";
+                rowAxis.textContent = toRowLetters(r);
+                plateGridEl.appendChild(rowAxis);
+
+                for (let c = 0; c < plateState.cols; c++) {
+                    const well = toWellId(r, c);
+                    const cell = document.createElement("button");
+                    cell.type = "button";
+                    cell.className = "plate-cell";
+                    cell.dataset.well = well;
+                    cell.textContent = well;
+                    applyCellVisual(cell, plateState.assignments[well] || "");
+                    const paintCell = function () {
+                        if (!plateState.groupModeOn || !plateState.currentGroup) return;
+                        const currentGroup = plateState.currentGroup;
+                        const existing = plateState.assignments[well] || "";
+                        const shouldRemove = plateState.dragMode === "remove";
+                        if (shouldRemove) {
+                            if (existing === currentGroup.id) {
+                                delete plateState.assignments[well];
+                                currentGroup.cells = currentGroup.cells.filter((w) => w !== well);
+                                applyCellVisual(cell, "");
+                                renderSavedGroups();
+                            }
+                            return;
+                        }
+                        if (existing === currentGroup.id) {
+                            delete plateState.assignments[well];
+                            currentGroup.cells = currentGroup.cells.filter((w) => w !== well);
+                            applyCellVisual(cell, "");
+                            renderSavedGroups();
+                            return;
+                        }
+                        if (existing) {
+                            const oldGroup = findGroupById(existing);
+                            if (oldGroup) {
+                                oldGroup.cells = oldGroup.cells.filter((w) => w !== well);
+                            }
+                            if (plateState.currentGroup.id !== existing) {
+                                currentGroup.cells = currentGroup.cells.filter((w) => w !== well);
+                            }
+                        }
+                        plateState.assignments[well] = currentGroup.id;
+                        if (!currentGroup.cells.includes(well)) {
+                            currentGroup.cells.push(well);
+                        }
+                        applyCellVisual(cell, currentGroup.id);
+                        renderSavedGroups();
+                    };
+                    cell.addEventListener("mousedown", function (evt) {
+                        if (!plateState.groupModeOn || !plateState.currentGroup) return;
+                        evt.preventDefault();
+                        const existing = plateState.assignments[well] || "";
+                        plateState.dragPaintOn = true;
+                        plateState.dragMode = (existing === plateState.currentGroup.id) ? "remove" : "add";
+                        plateState.suppressNextCellClick = true;
+                        paintCell();
+                    });
+                    cell.addEventListener("mouseenter", function () {
+                        if (!plateState.dragPaintOn) return;
+                        if (!plateState.groupModeOn || !plateState.currentGroup) return;
+                        paintCell();
+                    });
+                    cell.addEventListener("click", function () {
+                        if (!plateState.groupModeOn || !plateState.currentGroup) return;
+                        if (plateState.suppressNextCellClick) {
+                            plateState.suppressNextCellClick = false;
+                            return;
+                        }
+                        if (plateState.dragPaintOn) return;
+                        plateState.dragMode = "";
+                        paintCell();
+                    });
+                    plateGridEl.appendChild(cell);
+                }
+            }
+        }
+
+        function getNextGroupColor() {
+            return platePalette[plateState.groups.length % platePalette.length];
+        }
+
+        function createOrUpdateCurrentGroupFromInput() {
+            const name = (plateGroupNameInput?.value || "").trim();
+            if (!name) return null;
+            if (!plateState.currentGroup) {
+                plateState.currentGroup = {
+                    id: `group_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
+                    name: name,
+                    color: getNextGroupColor(),
+                    cells: [],
+                };
+            } else {
+                plateState.currentGroup.name = name;
+            }
+            return plateState.currentGroup;
+        }
+
+        function loadTemplatesFromStorage() {
+            try {
+                const raw = window.localStorage.getItem(GROUP_TEMPLATE_STORAGE_KEY) || "[]";
+                const parsed = JSON.parse(raw);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (err) {
+                return [];
+            }
+        }
+
+        function saveTemplatesToStorage(templates) {
+            try {
+                window.localStorage.setItem(GROUP_TEMPLATE_STORAGE_KEY, JSON.stringify(templates || []));
+            } catch (err) {
+                // ignore storage quota issues in UI
+            }
+        }
+
+        function renderTemplateSelect() {
+            if (!templateSelect) return;
+            const templates = loadTemplatesFromStorage();
+            templateSelect.innerHTML = "";
+            const head = document.createElement("option");
+            head.value = "";
+            head.textContent = "Select template";
+            templateSelect.appendChild(head);
+            templates.forEach((t) => {
+                const opt = document.createElement("option");
+                opt.value = t.id;
+                opt.textContent = `${t.name} (${t.rows}x${t.cols})`;
+                templateSelect.appendChild(opt);
+            });
+        }
+
+        function saveGroupsDictAsTemplate(templateName, groupsDict) {
+            const name = (templateName || "").trim();
+            if (!name) return false;
+            const size = inferPlateSizeFromGroups(groupsDict || {});
+            const template = {
+                id: `tpl_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
+                name: name,
+                rows: size.rows,
+                cols: size.cols,
+                groups: Object.entries(groupsDict || {}).map(([gName, cells], idx) => ({
+                    name: gName,
+                    color: platePalette[idx % platePalette.length],
+                    cells: (Array.isArray(cells) ? cells : []).slice(),
+                })),
+            };
+            const templates = loadTemplatesFromStorage();
+            templates.push(template);
+            saveTemplatesToStorage(templates);
+            renderTemplateSelect();
+            if (templateSelect) templateSelect.value = template.id;
+            plateState.loadedTemplateGroups = template.groups.map((g) => ({ ...g, cells: (g.cells || []).slice() }));
+            renderRenameGroupInputs(plateState.loadedTemplateGroups);
+            return true;
+        }
+
+        async function persistGroupsToCurrentRun(groupsDict) {
+            if (!currentUploadSetId) {
+                return { ok: false, skipped: true };
+            }
+            try {
+                const body = new URLSearchParams();
+                body.set("upload_set_id", currentUploadSetId);
+                body.set("groups_json", JSON.stringify(groupsDict || {}));
+                const resp = await fetch("/groups/save_from_index", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+                    body: body.toString(),
+                });
+                if (!resp.ok) {
+                    return { ok: false, skipped: false };
+                }
+                const json = await resp.json().catch(() => ({}));
+                return { ok: !!json.ok, skipped: false };
+            } catch (err) {
+                return { ok: false, skipped: false };
+            }
+        }
+
+        function renderRenameGroupInputs(groups) {
+            if (!renameGroupsWrap) return;
+            if (!groups || !groups.length) {
+                renameGroupsWrap.innerHTML = '<div class="grouping-hint">No template loaded yet.</div>';
+                return;
+            }
+            renameGroupsWrap.innerHTML = "";
+            groups.forEach((g, i) => {
+                const row = document.createElement("div");
+                row.className = "rename-row";
+                const label = document.createElement("label");
+                label.textContent = `Group ${i + 1}`;
+                const input = document.createElement("input");
+                input.type = "text";
+                input.className = "template-rename-input";
+                input.dataset.groupIndex = String(i);
+                input.value = g.name || `Group ${i + 1}`;
+                row.appendChild(label);
+                row.appendChild(input);
+                renameGroupsWrap.appendChild(row);
+            });
+        }
+
+        function getSelectedTemplate() {
+            if (!templateSelect || !templateSelect.value) return null;
+            const templates = loadTemplatesFromStorage();
+            return templates.find((t) => String(t.id) === String(templateSelect.value)) || null;
+        }
+
+        if (buildPlateBtn && plateColsInput && plateRowsInput) {
+            buildPlateBtn.addEventListener("click", function () {
+                const nextCols = Math.max(1, Math.min(48, parseInt(plateColsInput.value || "12", 10)));
+                const nextRows = Math.max(1, Math.min(48, parseInt(plateRowsInput.value || "8", 10)));
+                plateState.cols = Number.isFinite(nextCols) ? nextCols : 12;
+                plateState.rows = Number.isFinite(nextRows) ? nextRows : 8;
+                plateState.assignments = {};
+                plateState.groups = [];
+                plateState.currentGroup = null;
+                plateState.groupModeOn = false;
+                setActiveGroupHint();
+                renderSavedGroups();
+                renderPlateGrid();
+            });
+        }
+
+        if (togglePlateGroupBtn) {
+            togglePlateGroupBtn.addEventListener("click", function () {
+                const g = createOrUpdateCurrentGroupFromInput();
+                if (!g) {
+                    window.alert("Enter a group name first.");
+                    return;
+                }
+                plateState.groupModeOn = !plateState.groupModeOn;
+                togglePlateGroupBtn.textContent = plateState.groupModeOn ? "Group mode: ON" : "Toggle group";
+                setActiveGroupHint();
+            });
+        }
+
+        if (savePlateGroupBtn && plateGroupNameInput) {
+            savePlateGroupBtn.addEventListener("click", function () {
+                const g = createOrUpdateCurrentGroupFromInput();
+                if (!g) {
+                    window.alert("Enter a group name first.");
+                    return;
+                }
+                if (!g.cells.length) {
+                    window.alert("Select at least one plate cell before saving.");
+                    return;
+                }
+                plateState.groups.push({
+                    id: g.id,
+                    name: g.name,
+                    color: g.color,
+                    cells: g.cells.slice(),
+                });
+                plateState.currentGroup = null;
+                plateState.groupModeOn = false;
+                plateGroupNameInput.value = "";
+                togglePlateGroupBtn.textContent = "Toggle group";
+                setActiveGroupHint();
+                renderSavedGroups();
+                renderPlateGrid();
+            });
+        }
+
+        if (loadCurrentRunGroupsBtn) {
+            loadCurrentRunGroupsBtn.addEventListener("click", function () {
+                const hasGroups = currentRunGroups && Object.keys(currentRunGroups).length > 0;
+                if (!hasGroups) {
+                    window.alert("No existing run grouping was found.");
+                    return;
+                }
+                loadGroupsDictIntoPlate(currentRunGroups, { resize: true });
+            });
+        }
+
+        window.addEventListener("mouseup", function () {
+            plateState.dragPaintOn = false;
+            plateState.dragMode = "";
+            window.setTimeout(function () {
+                plateState.suppressNextCellClick = false;
+            }, 0);
+        });
+
+        if (saveTemplateBtn && templateNameInput) {
+            saveTemplateBtn.addEventListener("click", function () {
+                const name = (templateNameInput.value || "").trim();
+                if (!name) {
+                    window.alert("Enter a template name first.");
+                    return;
+                }
+                if (!plateState.groups.length) {
+                    window.alert("No saved groups to store in a template.");
+                    return;
+                }
+                const template = {
+                    id: `tpl_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
+                    name: name,
+                    rows: plateState.rows,
+                    cols: plateState.cols,
+                    groups: plateState.groups.map((g) => ({
+                        name: g.name,
+                        color: g.color,
+                        cells: (g.cells || []).slice(),
+                    })),
+                };
+                const templates = loadTemplatesFromStorage();
+                templates.push(template);
+                saveTemplatesToStorage(templates);
+                renderTemplateSelect();
+                templateSelect.value = template.id;
+                plateState.loadedTemplateGroups = template.groups.map((g) => ({ ...g, cells: (g.cells || []).slice() }));
+                renderRenameGroupInputs(plateState.loadedTemplateGroups);
+                templateNameInput.value = "";
+            });
+        }
+
+        if (saveTemplateFromRunBtn) {
+            saveTemplateFromRunBtn.addEventListener("click", function () {
+                const hasGroups = currentRunGroups && Object.keys(currentRunGroups).length > 0;
+                if (!hasGroups) {
+                    window.alert("No existing run grouping was found.");
+                    return;
+                }
+                const defaultName = `template_${new Date().toISOString().slice(0, 10)}`;
+                const name = window.prompt("Template name for current run grouping:", defaultName);
+                if (name === null) return;
+                const ok = saveGroupsDictAsTemplate(name, currentRunGroups);
+                if (!ok) {
+                    window.alert("Template name is required.");
+                    return;
+                }
+                window.alert("Template saved from current run grouping.");
+            });
+        }
+
+        if (loadTemplateGroupsBtn) {
+            loadTemplateGroupsBtn.addEventListener("click", function () {
+                const template = getSelectedTemplate();
+                if (!template) {
+                    window.alert("Choose a template first.");
+                    return;
+                }
+                plateState.loadedTemplateGroups = (template.groups || []).map((g) => ({ ...g, cells: (g.cells || []).slice() }));
+                renderRenameGroupInputs(plateState.loadedTemplateGroups);
+            });
+        }
+
+        if (applyTemplateBtn) {
+            applyTemplateBtn.addEventListener("click", async function () {
+                const template = getSelectedTemplate();
+                if (!template) {
+                    window.alert("Choose a template first.");
+                    return;
+                }
+                const loadedGroups = plateState.loadedTemplateGroups || (template.groups || []);
+                if (!loadedGroups.length) {
+                    window.alert("Load template groups first.");
+                    return;
+                }
+                const allTemplateWells = [];
+                loadedGroups.forEach((g) => (g.cells || []).forEach((w) => allTemplateWells.push(w)));
+                const invalidWells = allTemplateWells.filter((w) => !wellInCurrentBounds(w));
+                if (invalidWells.length) {
+                    window.alert(
+                        `Template cannot be applied to current plate layout (${plateState.rows}x${plateState.cols}). ` +
+                        `Missing wells: ${invalidWells.slice(0, 12).join(", ")}${invalidWells.length > 12 ? " ..." : ""}`
+                    );
+                    return;
+                }
+
+                const renameInputs = Array.from(document.querySelectorAll(".template-rename-input"));
+                const renamedGroups = loadedGroups.map((g, idx) => {
+                    const input = renameInputs.find((x) => Number(x.dataset.groupIndex) === idx);
+                    const nextName = (input?.value || "").trim() || g.name || `Group ${idx + 1}`;
+                    return {
+                        id: `group_${Date.now()}_${idx}_${Math.random().toString(16).slice(2, 6)}`,
+                        name: nextName,
+                        color: g.color || platePalette[idx % platePalette.length],
+                        cells: (g.cells || []).slice(),
+                    };
+                });
+
+                plateState.groups = renamedGroups;
+                plateState.assignments = {};
+                plateState.groups.forEach((g) => {
+                    (g.cells || []).forEach((w) => {
+                        plateState.assignments[w] = g.id;
+                    });
+                });
+                plateState.currentGroup = null;
+                plateState.groupModeOn = false;
+                togglePlateGroupBtn.textContent = "Toggle group";
+                setActiveGroupHint();
+                renderSavedGroups();
+                renderPlateGrid();
+
+                const groupsDict = groupsDictFromPlateState();
+                const persisted = await persistGroupsToCurrentRun(groupsDict);
+                if (!persisted.skipped && !persisted.ok) {
+                    window.alert("Template was applied, but could not save grouping to current run.");
+                }
+            });
+        }
+
+        if (openGroupingBtn && groupingModal) {
+            openGroupingBtn.addEventListener("click", function () {
+                groupingModal.classList.add("show");
+                groupingModal.setAttribute("aria-hidden", "false");
+                const hasCurrentRunGroups = currentRunGroups && Object.keys(currentRunGroups).length > 0;
+                if (!plateState.groups.length && hasCurrentRunGroups) {
+                    loadGroupsDictIntoPlate(currentRunGroups, { resize: true });
+                } else {
+                    renderPlateGrid();
+                    renderSavedGroups();
+                    setActiveGroupHint();
+                }
+                renderTemplateSelect();
+            });
+        }
+        if (closeGroupingBtn && groupingModal) {
+            closeGroupingBtn.addEventListener("click", function () {
+                groupingModal.classList.remove("show");
+                groupingModal.setAttribute("aria-hidden", "true");
+            });
+        }
+        if (groupingModal) {
+            groupingModal.addEventListener("click", function (evt) {
+                if (evt.target === groupingModal) {
+                    groupingModal.classList.remove("show");
+                    groupingModal.setAttribute("aria-hidden", "true");
+                }
+            });
+        }
+        window.addEventListener("keydown", function (evt) {
+            if (evt.key === "Escape" && groupingModal && groupingModal.classList.contains("show")) {
+                groupingModal.classList.remove("show");
+                groupingModal.setAttribute("aria-hidden", "true");
             }
         });
+
+        groupingTabs.forEach((tabBtn) => {
+            tabBtn.addEventListener("click", function () {
+                const key = tabBtn.dataset.groupingTab;
+                groupingTabs.forEach((b) => b.classList.remove("active"));
+                tabBtn.classList.add("active");
+                document.querySelectorAll(".grouping-panel").forEach((panel) => panel.classList.remove("show"));
+                const panel = document.getElementById(`grouping-panel-${key}`);
+                if (panel) panel.classList.add("show");
+            });
+        });
+    </script>
+
+    <script>
+    // ── Save run ──────────────────────────────────────────────────────────────
+    (function() {
+        const saveRunBtn = document.getElementById("save-run-btn");
+        if (saveRunBtn) {
+            saveRunBtn.addEventListener("click", function() {
+                const name = (document.getElementById("save-run-name-input")?.value || "").trim();
+                const statusEl = document.getElementById("save-run-status");
+                const body = new URLSearchParams();
+                body.set("run_name", name);
+                const uploadSetId = document.querySelector('input[name="upload_set_id"]')?.value || "";
+                body.set("upload_set_id", uploadSetId);
+                fetch("/runs/save_current", { method: "POST", body })
+                    .then(r => r.json())
+                    .then(d => {
+                        if (d.ok && statusEl) {
+                            statusEl.style.display = "";
+                            setTimeout(() => { statusEl.style.display = "none"; }, 3000);
+                        }
+                    }).catch(() => {});
+            });
+        }
+    })();
+
+    // ── Plate overview modal ──────────────────────────────────────────────────
+    (function() {
+        const poModal = document.getElementById("plate-ov-modal");
+        const poContent = document.getElementById("po-content");
+        const poInfoBar = document.getElementById("po-info-bar");
+        const closePoBtn = document.getElementById("close-plate-ov-btn");
+        const openPoBtn = document.getElementById("open-plate-overview-btn");
+
+        // Module-scoped state
+        let poData = null;
+        let poGroups = {};
+        let poSelection = new Set();
+        let poDrawMode = false;
+        let poDragging = false;
+
+        const PO_PALETTE = [
+            "#93c5fd","#f9a8d4","#86efac","#fcd34d","#a5b4fc",
+            "#67e8f9","#fdba74","#d8b4fe","#bef264","#fca5a5"
+        ];
+
+        function poGroupColor(idx) {
+            return PO_PALETTE[idx % PO_PALETTE.length];
+        }
+
+        function poRowLetter(rowIdx) {
+            let n = rowIdx + 1, out = "";
+            while (n > 0) {
+                const r = (n - 1) % 26;
+                out = String.fromCharCode(65 + r) + out;
+                n = Math.floor((n - 1) / 26);
+            }
+            return out;
+        }
+
+        function poWellId(rowIdx, colIdx) {
+            return poRowLetter(rowIdx) + String(colIdx + 1).padStart(2, "0");
+        }
+
+        function buildMiniSvg(xArr, yArr, tHalf, tHalfY, normalized, showHalftime, color) {
+            if (!xArr || !xArr.length) return '<svg viewBox="0 0 76 44"></svg>';
+            let ys = yArr.slice();
+            if (normalized) {
+                const mn = Math.min(...ys), mx = Math.max(...ys);
+                const rng = mx - mn || 1;
+                ys = ys.map(v => (v - mn) / rng);
+            }
+            const xMin = xArr[0], xMax = xArr[xArr.length - 1];
+            const xRng = xMax - xMin || 1;
+            const yMin = Math.min(...ys), yMax = Math.max(...ys);
+            const yRng = yMax - yMin || 1;
+            const W = 76, H = 44, pad = 2;
+            function px(x) { return pad + (x - xMin) / xRng * (W - 2 * pad); }
+            function py(y) { return H - pad - (y - yMin) / yRng * (H - 2 * pad); }
+            let pts = xArr.map((x, i) => `${px(x).toFixed(1)},${py(ys[i]).toFixed(1)}`).join(" ");
+            let dotSvg = "";
+            if (showHalftime && tHalf != null && tHalfY != null) {
+                let dotY = tHalfY;
+                if (normalized) {
+                    const mn = Math.min(...yArr), mx = Math.max(...yArr);
+                    const rng = mx - mn || 1;
+                    dotY = (tHalfY - mn) / rng;
+                }
+                const dotX = px(tHalf), dotYPx = py(dotY);
+                dotSvg = `<circle cx="${dotX.toFixed(1)}" cy="${dotYPx.toFixed(1)}" r="2.5" fill="#ef4444" />`;
+            }
+            return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${color || "#2563eb"}" stroke-width="1.2"/>${dotSvg}</svg>`;
+        }
+
+        function poGetGroupForWell(well) {
+            for (const [gname, wells] of Object.entries(poGroups)) {
+                if (Array.isArray(wells) && wells.includes(well)) return gname;
+            }
+            return null;
+        }
+
+        function poGroupIndex(gname) {
+            return Object.keys(poGroups).indexOf(gname);
+        }
+
+        function poRenderGroupLegend(legendEl) {
+            legendEl.innerHTML = "";
+            Object.entries(poGroups).forEach(([gname, gwells], idx) => {
+                const badge = document.createElement("span");
+                badge.className = "po-group-badge";
+                const dot = document.createElement("span");
+                dot.className = "po-group-dot";
+                dot.style.background = poGroupColor(idx);
+                const label = document.createElement("span");
+                label.textContent = `${gname} (${Array.isArray(gwells) ? gwells.length : 0})`;
+                const trash = document.createElement("button");
+                trash.className = "po-group-trash";
+                trash.textContent = "✕";
+                trash.title = "Delete group";
+                trash.addEventListener("click", function() {
+                    delete poGroups[gname];
+                    renderPlateOvContent(document.getElementById("po-content"), poData);
+                });
+                badge.appendChild(dot);
+                badge.appendChild(label);
+                badge.appendChild(trash);
+                legendEl.appendChild(badge);
+            });
+        }
+
+        function poUpdateCellVisual(cell, well, normalizedCb, showHalfCb) {
+            if (!poData) return;
+            const preview = poData.curve_previews[well];
+            const halfVal = poData.well_halftime[well];
+            const inner = cell.querySelector(".po-cell-inner");
+            if (!inner) return;
+            const svgWrap = inner.querySelector(".po-cell-svg-wrap");
+            if (!svgWrap) return;
+            const gname = poGetGroupForWell(well);
+            const gidx = gname ? poGroupIndex(gname) : -1;
+            const cellColor = gidx >= 0 ? poGroupColor(gidx) : "#fff";
+            cell.style.background = cellColor;
+            if (preview) {
+                const color = "#2563eb";
+                svgWrap.innerHTML = buildMiniSvg(
+                    preview.x, preview.y,
+                    preview.t_half, preview.t_half_y,
+                    normalizedCb ? normalizedCb.checked : false,
+                    showHalfCb ? showHalfCb.checked : false,
+                    color
+                );
+            }
+            if (poSelection.has(well)) {
+                cell.classList.add("po-selected");
+            } else {
+                cell.classList.remove("po-selected");
+            }
+        }
+
+        function renderPlateOvContent(container, data) {
+            if (!data || !data.ok) {
+                container.innerHTML = `<div class="po-loading" style="color:#b91c1c;">Error: ${(data && data.error) || "Unknown error"}</div>`;
+                return;
+            }
+            poData = data;
+
+            // Build HTML
+            const ROWS = ["A","B","C","D","E","F","G","H"];
+            const COLS = 12;
+
+            let html = `
+                <div class="plate-ov-options">
+                    <label><input type="checkbox" id="po-normalized-cb"> Normalized</label>
+                    <label><input type="checkbox" id="po-show-thalf-cb" checked> Show t½</label>
+                    <span style="font-size:0.82rem;color:#64748b;">Time unit: ${data.time_unit_suffix}</span>
+                </div>
+                <div class="plate-ov-group-controls">
+                    <input type="text" id="po-group-name-input" placeholder="group name" style="max-width:160px;">
+                    <button type="button" id="po-assign-btn" style="background:#1d4ed8;">Assign</button>
+                    <button type="button" id="po-clear-sel-btn" style="background:#475569;">Clear selection</button>
+                    <button type="button" id="po-clear-groups-btn" style="background:#b91c1c;">Clear groups</button>
+                    <button type="button" id="po-draw-mode-btn" style="background:#475569;">Draw mode: OFF</button>
+                </div>
+                <div id="po-group-legend" class="po-group-legend"></div>
+                <div class="plate-ov-action-bar">
+                    <button type="button" id="po-act-agg" style="background:#0891b2;">Plot aggregation curves</button>
+                    <button type="button" id="po-act-thalf-log" style="background:#2563eb;">Plot t½ vs log(conc)</button>
+                    <button type="button" id="po-act-thalf-lin" style="background:#0f766e;">Plot t½ vs conc</button>
+                    <button type="button" id="po-act-ctrl-ht" style="background:#7c3aed;">Control halftimes</button>
+                    <button type="button" id="po-act-gvc" style="background:#ea580c;">Plot groups vs control</button>
+                </div>
+                <div class="po-grid-wrap">
+                <table class="po-grid-table" id="po-grid-table">
+                    <thead><tr><th></th>`;
+            for (let c = 0; c < COLS; c++) {
+                html += `<th class="po-header-cell">${String(c+1).padStart(2,"0")}</th>`;
+            }
+            html += `</tr></thead><tbody>`;
+            for (let r = 0; r < ROWS.length; r++) {
+                html += `<tr><td class="po-row-label">${ROWS[r]}</td>`;
+                for (let c = 0; c < COLS; c++) {
+                    const well = ROWS[r] + String(c+1).padStart(2,"0");
+                    const hasData = data.all_wells.includes(well);
+                    const halfVal = data.well_halftime[well];
+                    const halfStr = halfVal != null ? `${halfVal}${data.time_unit_suffix}` : (data.invalid_wells.includes(well) ? "N/A" : "");
+                    const noDataCls = hasData ? "" : " po-no-data";
+                    html += `<td class="po-cell${noDataCls}" data-well="${well}">
+                        <div class="po-cell-inner">
+                            <div class="po-cell-label">${well}</div>
+                            <div class="po-cell-halftime">${halfStr}</div>
+                            <div class="po-cell-svg-wrap"></div>
+                        </div>
+                    </td>`;
+                }
+                html += `</tr>`;
+            }
+            html += `</tbody></table></div>`;
+            container.innerHTML = html;
+
+            if (poInfoBar) {
+                poInfoBar.textContent = `${data.n_files} file(s) | chromatic ${data.chromatic}`;
+            }
+
+            const normalizedCb = document.getElementById("po-normalized-cb");
+            const showHalfCb = document.getElementById("po-show-thalf-cb");
+            const groupLegend = document.getElementById("po-group-legend");
+            const drawModeBtn = document.getElementById("po-draw-mode-btn");
+
+            // Render SVGs
+            document.querySelectorAll(".po-cell[data-well]").forEach(cell => {
+                const well = cell.dataset.well;
+                if (data.all_wells.includes(well)) {
+                    poUpdateCellVisual(cell, well, normalizedCb, showHalfCb);
+                }
+            });
+
+            // Re-render on option changes
+            function reRenderAllCells() {
+                document.querySelectorAll(".po-cell[data-well]").forEach(cell => {
+                    const well = cell.dataset.well;
+                    if (data.all_wells.includes(well)) {
+                        poUpdateCellVisual(cell, well, normalizedCb, showHalfCb);
+                    }
+                });
+            }
+            if (normalizedCb) normalizedCb.addEventListener("change", reRenderAllCells);
+            if (showHalfCb) showHalfCb.addEventListener("change", reRenderAllCells);
+
+            // Render group legend
+            poRenderGroupLegend(groupLegend);
+
+            // Draw mode toggle
+            if (drawModeBtn) {
+                drawModeBtn.addEventListener("click", function() {
+                    poDrawMode = !poDrawMode;
+                    drawModeBtn.textContent = poDrawMode ? "Draw mode: ON" : "Draw mode: OFF";
+                    drawModeBtn.style.background = poDrawMode ? "#16a34a" : "#475569";
+                });
+            }
+
+            // Cell interaction
+            const table = document.getElementById("po-grid-table");
+            if (table) {
+                table.addEventListener("mousedown", function(evt) {
+                    const cell = evt.target.closest(".po-cell[data-well]");
+                    if (!cell) return;
+                    const well = cell.dataset.well;
+                    if (!data.all_wells.includes(well)) return;
+                    if (poDrawMode) {
+                        poDragging = true;
+                        poSelection.add(well);
+                        poUpdateCellVisual(cell, well, normalizedCb, showHalfCb);
+                        evt.preventDefault();
+                    }
+                });
+                table.addEventListener("mouseover", function(evt) {
+                    if (!poDrawMode || !poDragging) return;
+                    const cell = evt.target.closest(".po-cell[data-well]");
+                    if (!cell) return;
+                    const well = cell.dataset.well;
+                    if (!data.all_wells.includes(well)) return;
+                    poSelection.add(well);
+                    poUpdateCellVisual(cell, well, normalizedCb, showHalfCb);
+                });
+                document.addEventListener("mouseup", function() {
+                    poDragging = false;
+                });
+                table.addEventListener("click", function(evt) {
+                    if (poDrawMode) return;
+                    const cell = evt.target.closest(".po-cell[data-well]");
+                    if (!cell) return;
+                    const well = cell.dataset.well;
+                    if (!data.all_wells.includes(well)) return;
+                    if (poSelection.has(well)) {
+                        poSelection.delete(well);
+                    } else {
+                        poSelection.add(well);
+                    }
+                    poUpdateCellVisual(cell, well, normalizedCb, showHalfCb);
+                });
+                table.addEventListener("dblclick", function(evt) {
+                    if (poDrawMode) return;
+                    const cell = evt.target.closest(".po-cell[data-well]");
+                    if (!cell) return;
+                    const well = cell.dataset.well;
+                    if (!data.all_wells.includes(well)) return;
+                    // Open single-well plot in new tab
+                    const form = document.createElement("form");
+                    form.method = "POST";
+                    form.action = "/plot/select?plot_type=raw";
+                    form.target = "_blank";
+                    const usi = document.createElement("input");
+                    usi.type = "hidden";
+                    usi.name = "upload_set_id";
+                    usi.value = document.querySelector('input[name="upload_set_id"]')?.value || "";
+                    form.appendChild(usi);
+                    const tu = document.createElement("input");
+                    tu.type = "hidden";
+                    tu.name = "time_unit";
+                    tu.value = document.getElementById("time-unit")?.value || "hours";
+                    form.appendChild(tu);
+                    document.body.appendChild(form);
+                    form.submit();
+                    document.body.removeChild(form);
+                });
+            }
+
+            // Assign button
+            const assignBtn = document.getElementById("po-assign-btn");
+            const groupNameInput = document.getElementById("po-group-name-input");
+            if (assignBtn && groupNameInput) {
+                assignBtn.addEventListener("click", function() {
+                    const gname = (groupNameInput.value || "").trim();
+                    if (!gname) { window.alert("Enter a group name."); return; }
+                    if (!poSelection.size) { window.alert("Select wells first."); return; }
+                    if (!poGroups[gname]) poGroups[gname] = [];
+                    poSelection.forEach(w => {
+                        if (!poGroups[gname].includes(w)) poGroups[gname].push(w);
+                    });
+                    poGroups[gname].sort();
+                    reRenderAllCells();
+                    poRenderGroupLegend(groupLegend);
+                });
+            }
+
+            // Clear selection
+            const clearSelBtn = document.getElementById("po-clear-sel-btn");
+            if (clearSelBtn) {
+                clearSelBtn.addEventListener("click", function() {
+                    poSelection.clear();
+                    reRenderAllCells();
+                });
+            }
+
+            // Clear groups
+            const clearGroupsBtn = document.getElementById("po-clear-groups-btn");
+            if (clearGroupsBtn) {
+                clearGroupsBtn.addEventListener("click", function() {
+                    if (!window.confirm("Clear all groups?")) return;
+                    poGroups = {};
+                    reRenderAllCells();
+                    poRenderGroupLegend(groupLegend);
+                });
+            }
+
+            // Action buttons
+            function poPostForm(action, fields) {
+                const form = document.createElement("form");
+                form.method = "POST";
+                form.action = action;
+                form.target = "_blank";
+                Object.entries(fields).forEach(([k, v]) => {
+                    const inp = document.createElement("input");
+                    inp.type = "hidden";
+                    inp.name = k;
+                    inp.value = v;
+                    form.appendChild(inp);
+                });
+                document.body.appendChild(form);
+                form.submit();
+                document.body.removeChild(form);
+            }
+
+            function poGetSelectedOrGroupedWells() {
+                if (poSelection.size) return Array.from(poSelection).sort();
+                const grouped = new Set();
+                Object.values(poGroups).forEach(ws => (ws || []).forEach(w => grouped.add(w)));
+                return grouped.size ? Array.from(grouped).sort() : data.all_wells.slice().sort();
+            }
+
+            document.getElementById("po-act-agg")?.addEventListener("click", function() {
+                const wells = poGetSelectedOrGroupedWells();
+                poPostForm("/plot/render", {
+                    dataset_id: data.plate_session_id,
+                    groups_json: JSON.stringify(poGroups),
+                });
+            });
+
+            document.getElementById("po-act-thalf-log")?.addEventListener("click", function() {
+                poPostForm("/plot/thalf?scale=log", {
+                    thalf_session_id: data.thalf_session_id,
+                    thalf_groups_json: JSON.stringify(poGroups),
+                });
+            });
+
+            document.getElementById("po-act-thalf-lin")?.addEventListener("click", function() {
+                poPostForm("/plot/thalf?scale=linear", {
+                    thalf_session_id: data.thalf_session_id,
+                    thalf_groups_json: JSON.stringify(poGroups),
+                });
+            });
+
+            document.getElementById("po-act-ctrl-ht")?.addEventListener("click", function() {
+                const uploadSetId = document.querySelector('input[name="upload_set_id"]')?.value || "";
+                poPostForm("/control_halftimes/start", {
+                    upload_set_id: uploadSetId,
+                    time_unit: document.getElementById("time-unit")?.value || "hours",
+                });
+            });
+
+            document.getElementById("po-act-gvc")?.addEventListener("click", async function() {
+                // Save groups first, then redirect
+                const uploadSetId = document.querySelector('input[name="upload_set_id"]')?.value || "";
+                if (uploadSetId && Object.keys(poGroups).length) {
+                    try {
+                        const body = new URLSearchParams();
+                        body.set("upload_set_id", uploadSetId);
+                        body.set("groups_json", JSON.stringify(poGroups));
+                        await fetch("/groups/save_from_index", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+                            body: body.toString(),
+                        });
+                    } catch(_) {}
+                }
+                poPostForm("/plot/group_vs_control/start", {
+                    upload_set_id: uploadSetId,
+                    time_unit: document.getElementById("time-unit")?.value || "hours",
+                });
+            });
+        }
+
+        // Open plate overview modal
+        if (openPoBtn) {
+            openPoBtn.addEventListener("click", async function() {
+                if (!poModal) return;
+                poGroups = {};
+                poSelection = new Set();
+                poDrawMode = false;
+                // Show modal with loading state
+                if (poContent) poContent.innerHTML = '<div class="po-loading">Loading plate data…</div>';
+                poModal.classList.add("show");
+                poModal.setAttribute("aria-hidden", "false");
+
+                // Gather form data
+                const mainForm = openPoBtn.closest("form");
+                const fd = new FormData(mainForm || document.createElement("form"));
+                // Also send files if any
+                const fileInputsEl = document.getElementById("file-inputs");
+                if (fileInputsEl) {
+                    fileInputsEl.querySelectorAll("input[type=file]").forEach(inp => {
+                        Array.from(inp.files || []).forEach(f => fd.append("files", f));
+                    });
+                }
+
+                try {
+                    const resp = await fetch("/plate_overview/data", { method: "POST", body: fd });
+                    const data = await resp.json();
+                    if (!resp.ok || !data.ok) {
+                        if (poContent) poContent.innerHTML = `<div class="po-loading" style="color:#b91c1c;">Error: ${data.error || "Could not load plate data."}</div>`;
+                        return;
+                    }
+                    renderPlateOvContent(poContent, data);
+                } catch(err) {
+                    if (poContent) poContent.innerHTML = `<div class="po-loading" style="color:#b91c1c;">Network error.</div>`;
+                }
+            });
+        }
+
+        // Close button
+        if (closePoBtn) {
+            closePoBtn.addEventListener("click", function() {
+                if (poModal) {
+                    poModal.classList.remove("show");
+                    poModal.setAttribute("aria-hidden", "true");
+                }
+            });
+        }
+        if (poModal) {
+            poModal.addEventListener("click", function(evt) {
+                if (evt.target === poModal) {
+                    poModal.classList.remove("show");
+                    poModal.setAttribute("aria-hidden", "true");
+                }
+            });
+        }
+    })();
+
+    // ── Chromatic selection modal ─────────────────────────────────────────────
+    (function() {
+        const chromModal = document.getElementById("chrom-modal");
+        const chromContent = document.getElementById("chrom-content");
+        const chromInfo = document.getElementById("chrom-info");
+        const closeChromBtn = document.getElementById("close-chrom-btn");
+
+        const CHROM_COLORS = {
+            "1": "#3B82F6", "2": "#F59E0B", "3": "#10B981",
+            "4": "#EF4444", "5": "#8B5CF6", "6": "#EC4899"
+        };
+        function chromColor(id) {
+            return CHROM_COLORS[String(id)] || "#94a3b8";
+        }
+
+        let chromData = null;
+        let pendingFormAction = null;
+        let pendingFormMethod = null;
+
+        function buildChromMiniSvg(xArr, yArr, color) {
+            if (!xArr || !xArr.length) return '<svg viewBox="0 0 76 44"></svg>';
+            const W = 76, H = 44, pad = 2;
+            const xMin = xArr[0], xMax = xArr[xArr.length - 1];
+            const xRng = xMax - xMin || 1;
+            const yMin = Math.min(...yArr), yMax = Math.max(...yArr);
+            const yRng = yMax - yMin || 1;
+            function px(x) { return pad + (x - xMin) / xRng * (W - 2 * pad); }
+            function py(y) { return H - pad - (y - yMin) / yRng * (H - 2 * pad); }
+            const pts = xArr.map((x, i) => `${px(x).toFixed(1)},${py(yArr[i]).toFixed(1)}`).join(" ");
+            return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5"/></svg>`;
+        }
+
+        function renderChromModal(data) {
+            chromData = data;
+            const available = data.available || [];
+            const autoSel = data.auto_selected;
+
+            if (chromInfo) {
+                chromInfo.textContent = `${available.length} chromatic(s) found`;
+            }
+
+            let html = `<div class="chrom-legend">`;
+            available.forEach(cid => {
+                const color = chromColor(cid);
+                const nWells = (data.chromatics[cid] || {}).n_wells || 0;
+                html += `<div class="chrom-legend-item">
+                    <label>
+                        <input type="radio" name="chrom-pick" value="${cid}" ${cid === autoSel ? "checked" : ""}>
+                        <span class="chrom-swatch" style="background:${color};"></span>
+                        Chromatic ${cid} (${nWells} wells)${cid === autoSel ? " ★ auto" : ""}
+                    </label>
+                </div>`;
+            });
+            html += `</div>`;
+
+            // Plate grid preview (8x12)
+            const ROWS = ["A","B","C","D","E","F","G","H"];
+            const COLS = 12;
+            const allWells = new Set();
+            available.forEach(cid => {
+                Object.keys((data.chromatics[cid] || {}).wells || {}).forEach(w => allWells.add(w));
+            });
+
+            html += `<div class="po-grid-wrap"><table class="po-grid-table"><thead><tr><th></th>`;
+            for (let c = 0; c < COLS; c++) {
+                html += `<th class="po-header-cell">${String(c+1).padStart(2,"0")}</th>`;
+            }
+            html += `</tr></thead><tbody>`;
+            for (let r = 0; r < ROWS.length; r++) {
+                html += `<tr><td class="po-row-label">${ROWS[r]}</td>`;
+                for (let c = 0; c < COLS; c++) {
+                    const well = ROWS[r] + String(c+1).padStart(2,"0");
+                    const hasAny = allWells.has(well);
+                    html += `<td class="po-cell${hasAny ? "" : " po-no-data"}" style="width:80px;height:62px;padding:0;position:relative;">
+                        <div class="po-cell-inner" style="position:relative;">
+                            <div class="po-cell-label">${well}</div>
+                            <div class="po-cell-svg-wrap" id="chrom-cell-${well}"></div>
+                        </div>
+                    </td>`;
+                }
+                html += `</tr>`;
+            }
+            html += `</tbody></table></div>`;
+
+            html += `<div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <button type="button" id="chrom-proceed-btn" style="background:#0f766e;">Proceed with selected chromatic</button>
+                <span style="font-size:0.82rem;color:#64748b;">Select chromatic via radio button above, then click Proceed.</span>
+            </div>`;
+
+            chromContent.innerHTML = html;
+
+            // Render mini SVGs
+            allWells.forEach(well => {
+                const wrap = document.getElementById(`chrom-cell-${well}`);
+                if (!wrap) return;
+                // Overlay all chromatics
+                let svgsHtml = "";
+                available.forEach(cid => {
+                    const wdata = (data.chromatics[cid] || {}).wells || {};
+                    if (wdata[well]) {
+                        svgsHtml += `<div style="position:absolute;inset:0;opacity:0.7;" data-chrom-svg="${cid}">` +
+                            buildChromMiniSvg(wdata[well].x, wdata[well].y, chromColor(cid)) +
+                            `</div>`;
+                    }
+                });
+                wrap.style.position = "relative";
+                wrap.innerHTML = svgsHtml;
+            });
+
+            // Highlight selected chromatic on radio change
+            function updateChromHighlight() {
+                const picked = document.querySelector('input[name="chrom-pick"]:checked');
+                if (!picked) return;
+                const pickedId = picked.value;
+                allWells.forEach(well => {
+                    available.forEach(cid => {
+                        const svgDiv = document.querySelector(`#chrom-cell-${well} [data-chrom-svg="${cid}"]`);
+                        if (svgDiv) {
+                            svgDiv.style.opacity = (cid === pickedId) ? "1" : "0.2";
+                        }
+                    });
+                });
+            }
+            document.querySelectorAll('input[name="chrom-pick"]').forEach(rb => {
+                rb.addEventListener("change", updateChromHighlight);
+            });
+            updateChromHighlight();
+
+            // Proceed button
+            const proceedBtn = document.getElementById("chrom-proceed-btn");
+            if (proceedBtn) {
+                proceedBtn.addEventListener("click", function() {
+                    const picked = document.querySelector('input[name="chrom-pick"]:checked');
+                    const pickedId = picked ? picked.value : (autoSel || "");
+                    // Set hidden field and submit
+                    const forcedField = document.getElementById("forced-chromatic");
+                    if (forcedField) forcedField.value = pickedId;
+                    chromModal.classList.remove("show");
+                    chromModal.setAttribute("aria-hidden", "true");
+                    // Submit the form
+                    const mainForm = document.querySelector('form[action="/analyze"]');
+                    if (mainForm && pendingFormAction) {
+                        // Use a temporary submit button with formaction
+                        const btn = document.createElement("button");
+                        btn.type = "submit";
+                        btn.style.display = "none";
+                        if (pendingFormAction !== "/analyze") {
+                            btn.setAttribute("formaction", pendingFormAction);
+                        }
+                        if (pendingFormMethod && pendingFormMethod !== "post") {
+                            btn.setAttribute("formmethod", pendingFormMethod);
+                        }
+                        mainForm.appendChild(btn);
+                        btn.click();
+                        mainForm.removeChild(btn);
+                    }
+                });
+            }
+        }
+
+        // Intercept submit buttons that need files and multiple chromatics
+        function shouldShowChromModal() {
+            const fileInputsEl = document.getElementById("file-inputs");
+            if (!fileInputsEl) return false;
+            const hasNewFiles = Array.from(fileInputsEl.querySelectorAll("input[type=file]"))
+                .some(inp => inp.files && inp.files.length > 0);
+            return hasNewFiles;
+        }
+
+        async function maybeShowChromModal(formAction, formMethod, evt) {
+            if (!shouldShowChromModal()) return false;
+            // We need to check if there are multiple chromatics
+            const mainForm = document.querySelector('form[action="/analyze"]');
+            if (!mainForm) return false;
+            const fd = new FormData(mainForm);
+            // Add files
+            const fileInputsEl = document.getElementById("file-inputs");
+            if (fileInputsEl) {
+                fileInputsEl.querySelectorAll("input[type=file]").forEach(inp => {
+                    Array.from(inp.files || []).forEach(f => fd.append("files", f));
+                });
+            }
+            try {
+                const resp = await fetch("/upload/preview_chromatics", { method: "POST", body: fd });
+                const data = await resp.json();
+                if (!resp.ok || !data.ok) return false;
+                if (!data.available || data.available.length <= 1) return false;
+                // Multiple chromatics → show modal
+                pendingFormAction = formAction;
+                pendingFormMethod = formMethod;
+                if (chromContent) chromContent.innerHTML = '<div class="po-loading">Loading chromatic data…</div>';
+                chromModal.classList.add("show");
+                chromModal.setAttribute("aria-hidden", "false");
+                renderChromModal(data);
+                return true;
+            } catch(_) {
+                return false;
+            }
+        }
+
+        // Intercept all submit buttons in the analyze form
+        const mainForm = document.querySelector('form[action="/analyze"]');
+        if (mainForm) {
+            mainForm.addEventListener("click", async function(evt) {
+                const btn = evt.target.closest("button[type=submit]");
+                if (!btn) return;
+                const fa = btn.getAttribute("formaction") || "/analyze";
+                const fm = btn.getAttribute("formmethod") || "post";
+                const intercepted = await maybeShowChromModal(fa, fm, evt);
+                if (intercepted) {
+                    evt.preventDefault();
+                }
+            });
+        }
+
+        if (closeChromBtn) {
+            closeChromBtn.addEventListener("click", function() {
+                chromModal.classList.remove("show");
+                chromModal.setAttribute("aria-hidden", "true");
+                pendingFormAction = null;
+                pendingFormMethod = null;
+            });
+        }
+        if (chromModal) {
+            chromModal.addEventListener("click", function(evt) {
+                if (evt.target === chromModal) {
+                    chromModal.classList.remove("show");
+                    chromModal.setAttribute("aria-hidden", "true");
+                    pendingFormAction = null;
+                    pendingFormMethod = null;
+                }
+            });
+        }
+    })();
     </script>
 </body>
 </html>

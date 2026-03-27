@@ -23,6 +23,8 @@
     <form method="post" style="margin-bottom:10px;">
         <input type="hidden" name="thalf_session_id" value="{{ thalf_session_id }}">
         <input type="hidden" name="thalf_groups_json" value='{{ thalf_groups | default({}) | tojson }}'>
+        <input type="hidden" name="thalf_group_attributes_json" value='{{ thalf_group_attributes | default({}) | tojson }}'>
+        <input type="hidden" name="thalf_active_attribute_name" value='{{ thalf_active_attribute_name | default("") }}'>
         <details style="margin-bottom:8px;">
             <summary style="cursor:pointer; display:inline-block; border:1px solid #cbd5e1; border-radius:8px; padding:6px 10px; background:#f8fafc;">
                 Change plot / axis titles
@@ -33,6 +35,26 @@
                 <input type="text" name="custom_plot_title" placeholder="plot headline (optional)" value="{{ custom_titles.title if custom_titles else '' }}">
             </div>
         </details>
+        {% if axis_attribute_names and axis_attribute_names|length > 0 %}
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px;">
+            <label style="font-size:0.9rem;">x-axis:
+                <select name="x_axis_attr">
+                    <option value="conc" {% if x_axis_attr == 'conc' %}selected{% endif %}>Concentration (µM)</option>
+                    {% for attr in axis_attribute_names %}
+                    <option value="{{ attr }}" {% if x_axis_attr == attr %}selected{% endif %}>{{ attr }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label style="font-size:0.9rem;">y-axis:
+                <select name="y_axis_attr">
+                    <option value="half_time" {% if y_axis_attr == 'half_time' %}selected{% endif %}>Half-time</option>
+                    {% for attr in axis_attribute_names %}
+                    <option value="{{ attr }}" {% if y_axis_attr == attr %}selected{% endif %}>{{ attr }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </div>
+        {% endif %}
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button type="submit" formaction="/plot/thalf?scale=log">Update t1/2 vs log(conc)</button>
             <button type="submit" formaction="/plot/thalf?scale=linear">Update t1/2 vs conc</button>
@@ -41,7 +63,7 @@
     {% endif %}
 
     <img src="{{ image_url }}" alt="t1/2 plot" style="max-width:100%; height:auto; border:1px solid #ccc;">
-    <p><a href="{{ url_for('plot_download', plot_id=image_id) }}">Download plot</a></p>
+    <p><a href="{{ url_for('plots_bp.plot_download', plot_id=image_id) }}">Download plot</a></p>
 
     <p><a href="/">Back</a></p>
 </body>

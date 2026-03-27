@@ -2,6 +2,9 @@ import os
 import json
 import tempfile
 import shutil
+import gzip
+import sqlite3
+import re
 import pandas as pd
 import numpy as np
 import joblib
@@ -15,6 +18,7 @@ from ana2 import extract_features_from_current_folder
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
 UPLOAD_DATA_DIR = os.path.join(PROJECT_ROOT, "Koder", "data")
+AUTH_DB_PATH = os.path.join(PROJECT_ROOT, "Koder", "auth.db")
 SUBMITTED_HALFT_PATH = os.path.join(PROJECT_ROOT, "Koder", "submitted_halft.jsonl")
 SUBMITTED_AGGR_PATH = os.path.join(PROJECT_ROOT, "Koder", "submitted_aggr.jsonl")
 SUBMITTED_SIGMOID_PATH = os.path.join(PROJECT_ROOT, "Koder", "submitted_sigmoid.jsonl")
@@ -110,6 +114,113 @@ def resolve_uploaded_paths(file_names):
     return sorted(set(resolved))
 
 
+def _canonical_name(name):
+    base = os.path.basename(str(name or ""))
+    # Examples:
+    # 49e4b91d_1_260130IAPP20oC_file1.csv -> 260130IAPP20oC_file1.csv
+    # 18b2ff62_2_260130_F6_H8_asyn_Erik_file2--.csv -> 260130_F6_H8_asyn_Erik_file2--.csv
+    return re.sub(r"^[0-9a-f]{8}_[0-9]+_", "", base, flags=re.IGNORECASE)
+
+
+def load_saved_runs_index():
+    by_exact = {}
+    by_canon = {}
+    if not os.path.isfile(AUTH_DB_PATH):
+        return by_exact, by_canon
+    conn = sqlite3.connect(AUTH_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT id, data_path, source_files_json FROM saved_runs"
+        ).fetchall()
+    except Exception:
+        rows = []
+    finally:
+        conn.close()
+
+    for row in rows:
+        data_path = row["data_path"]
+        if not data_path or not os.path.isfile(data_path):
+            continue
+        try:
+            src_files = json.loads(row["source_files_json"] or "[]")
+        except Exception:
+            src_files = []
+        if not isinstance(src_files, list) or not src_files:
+            continue
+        exact_key = tuple(sorted(os.path.basename(str(x)) for x in src_files))
+        canon_key = tuple(sorted(_canonical_name(x) for x in src_files))
+        rec = {"id": row["id"], "data_path": data_path}
+        by_exact[exact_key] = rec
+        by_canon[canon_key] = rec
+    return by_exact, by_canon
+
+
+def resolve_saved_run_record(file_names, index_exact, index_canon):
+    if not file_names:
+        return None
+    exact_key = tuple(sorted(os.path.basename(str(x)) for x in file_names))
+    if exact_key in index_exact:
+        return index_exact[exact_key]
+    canon_key = tuple(sorted(_canonical_name(x) for x in file_names))
+    return index_canon.get(canon_key)
+
+
+def _write_payload_as_single_csv(payload, dst_path):
+    selected = str(payload.get("selected_chromatic", "1"))
+    time_sec = payload.get("time_sec", [])
+    wells = payload.get("wells", {})
+    if not isinstance(time_sec, list) or not isinstance(wells, dict) or not time_sec or not wells:
+        return False
+    try:
+        tvals = [int(float(v)) for v in time_sec]
+    except Exception:
+        return False
+    lines = [f"Chromatic: {selected}", "Time"]
+    chunk = 32
+    for i in range(0, len(tvals), chunk):
+        lines.append(" ".join(str(x) for x in tvals[i : i + chunk]))
+    for well in sorted(wells.keys()):
+        vals = wells.get(well, [])
+        if not isinstance(vals, list) or len(vals) != len(tvals):
+            continue
+        try:
+            y = [int(float(v)) for v in vals]
+        except Exception:
+            continue
+        lines.append(f"{well} " + " ".join(str(v) for v in y))
+    try:
+        with open(dst_path, "w", encoding="latin-1") as f:
+            f.write("\n".join(lines) + "\n")
+        return True
+    except Exception:
+        return False
+
+
+def extract_features_for_saved_run_record(record):
+    if not record:
+        return {}
+    data_path = record.get("data_path")
+    if not data_path or not os.path.isfile(data_path):
+        return {}
+    try:
+        with gzip.open(data_path, "rt", encoding="utf-8") as f:
+            payload = json.load(f)
+    except Exception:
+        return {}
+
+    cwd_before = os.getcwd()
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            csv_path = os.path.join(tmp, "run_payload.csv")
+            if not _write_payload_as_single_csv(payload, csv_path):
+                return {}
+            os.chdir(tmp)
+            return extract_features_from_current_folder()
+    finally:
+        os.chdir(cwd_before)
+
+
 def extract_features_for_uploaded_files(file_names):
     source_paths = resolve_uploaded_paths(file_names)
     if not source_paths:
@@ -139,12 +250,17 @@ def load_submitted_feedback_rows():
         return pd.DataFrame()
 
     cache = {}
+    runs_index_exact, runs_index_canon = load_saved_runs_index()
     out_rows = []
 
     def get_features(file_names):
         key = tuple(sorted([os.path.basename(str(x)) for x in (file_names or [])]))
         if key not in cache:
-            cache[key] = extract_features_for_uploaded_files(file_names)
+            feats = extract_features_for_uploaded_files(file_names)
+            if not feats:
+                rec = resolve_saved_run_record(file_names, runs_index_exact, runs_index_canon)
+                feats = extract_features_for_saved_run_record(rec)
+            cache[key] = feats
         return cache[key]
 
     # Classification feedback (aggregate or not)
@@ -202,12 +318,17 @@ def load_submitted_sigmoid_feedback_rows():
         return pd.DataFrame()
 
     cache = {}
+    runs_index_exact, runs_index_canon = load_saved_runs_index()
     out_rows = []
 
     def get_features(file_names):
         key = tuple(sorted([os.path.basename(str(x)) for x in (file_names or [])]))
         if key not in cache:
-            cache[key] = extract_features_for_uploaded_files(file_names)
+            feats = extract_features_for_uploaded_files(file_names)
+            if not feats:
+                rec = resolve_saved_run_record(file_names, runs_index_exact, runs_index_canon)
+                feats = extract_features_for_saved_run_record(rec)
+            cache[key] = feats
         return cache[key]
 
     for rec in sigmoid_rows:

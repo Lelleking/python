@@ -27,6 +27,10 @@
     <form action="/plot/render" method="post">
         <input type="hidden" name="dataset_id" value="{{ dataset_id }}">
         <input type="hidden" id="groups-json" name="groups_json" value='{{ groups | tojson }}'>
+        <label style="display:inline-flex; align-items:center; gap:6px; margin-bottom:8px;">
+            <input type="checkbox" name="normalized_curve" value="1" {% if plot_type == 'normalized' %}checked{% endif %}>
+            normalized curve
+        </label>
 
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
             <button type="button" id="select-all-btn">Select all</button>
@@ -60,6 +64,41 @@
         </div>
 
         <div id="groups-preview" style="margin-bottom:10px;"></div>
+        {% if groups and groups|length > 0 %}
+        <details style="margin-bottom:10px;">
+            <summary style="cursor:pointer;">Choose which groups to plot</summary>
+            <div style="margin-top:8px; display:flex; flex-direction:column; gap:8px;">
+                {% for gname, gwells in groups.items() %}
+                <div style="border:1px solid #d1d5db; border-radius:8px; padding:8px; background:#fff;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+                        <label style="display:inline-flex; align-items:center; gap:6px;">
+                            <input type="checkbox" class="plot-group-toggle" data-group-name="{{ gname }}" checked>
+                            <strong>{{ gname }}</strong>
+                        </label>
+                        <button type="button" class="group-wells-toggle-btn" data-group-name="{{ gname }}">Show wells</button>
+                    </div>
+                    <div class="group-wells-panel" data-group-name="{{ gname }}" style="display:none; margin-top:8px; border-top:1px dashed #e5e7eb; padding-top:8px;">
+                        {% for well in gwells %}
+                        <label style="display:inline-block; min-width:80px; margin:4px 8px 4px 0;">
+                            <input type="checkbox" name="wells" value="{{ well }}" {% if well in selected_wells %}checked{% endif %}>
+                            {{ well }}{% if invalid_wells and (well in invalid_wells) %}*{% endif %}
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </details>
+        {% else %}
+        <div id="well-list" style="max-width:900px;">
+            {% for well in all_wells %}
+            <label style="display:inline-block; min-width:80px; margin:4px 8px 4px 0;">
+                <input type="checkbox" name="wells" value="{{ well }}" {% if well in selected_wells %}checked{% endif %}>
+                {{ well }}{% if invalid_wells and (well in invalid_wells) %}*{% endif %}
+            </label>
+            {% endfor %}
+        </div>
+        {% endif %}
 
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
             <span>Select the</span>
@@ -74,18 +113,10 @@
 
         <p><strong>*</strong> = not valid aggregation</p>
 
-        <div id="well-list" style="max-width:900px;">
-            {% for well in all_wells %}
-            <label style="display:inline-block; min-width:80px; margin:4px 8px 4px 0;">
-                <input type="checkbox" name="wells" value="{{ well }}" {% if well in selected_wells %}checked{% endif %}>
-                {{ well }}{% if invalid_wells and (well in invalid_wells) %}*{% endif %}
-            </label>
-            {% endfor %}
-        </div>
     </form>
 
     <img src="{{ image_url }}" alt="Aggregation plot" style="max-width:100%; height:auto; border:1px solid #ccc; margin-top:12px;">
-    <p><a href="{{ url_for('plot_download', plot_id=image_id) }}">Download plot</a></p>
+    <p><a href="{{ url_for('plots_bp.plot_download', plot_id=image_id) }}">Download plot</a></p>
 
     <p><a href="/">Back</a></p>
 
@@ -149,7 +180,7 @@
                 });
             });
 
-            document.querySelectorAll('#well-list input[name="wells"]').forEach(input => {
+            document.querySelectorAll('input[name="wells"]').forEach(input => {
                 const label = input.closest("label");
                 if (!label) {
                     return;
@@ -281,6 +312,27 @@
             }
             delete groups[name];
             renderGroups();
+        });
+
+        document.addEventListener("click", function (e) {
+            const btn = e.target.closest(".group-wells-toggle-btn");
+            if (!btn) return;
+            const gname = btn.dataset.groupName;
+            const panel = document.querySelector(`.group-wells-panel[data-group-name="${gname}"]`);
+            if (!panel) return;
+            const open = panel.style.display !== "none";
+            panel.style.display = open ? "none" : "block";
+            btn.textContent = open ? "Show wells" : "Hide wells";
+        });
+        document.addEventListener("change", function (e) {
+            const cb = e.target.closest(".plot-group-toggle");
+            if (!cb) return;
+            const gname = cb.dataset.groupName;
+            const panel = document.querySelector(`.group-wells-panel[data-group-name="${gname}"]`);
+            if (!panel) return;
+            panel.querySelectorAll('input[name="wells"]').forEach((wcb) => {
+                wcb.checked = cb.checked;
+            });
         });
 
         selectAllBtn.addEventListener("click", function () {

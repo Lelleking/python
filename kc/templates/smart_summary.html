@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>Smart summary</title>
+    <style>
+        .summary-shell {
+            margin-top: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 14px;
+            background: #fff;
+            box-shadow: 0 16px 36px rgba(15, 23, 42, 0.12);
+            padding: 14px;
+        }
+        .summary-tabs {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .summary-tab {
+            background: #e2e8f0;
+            color: #0f172a;
+            border: 1px solid #cbd5e1;
+            box-shadow: none;
+            padding: 8px 12px;
+        }
+        .summary-tab.active {
+            background: #1d4ed8;
+            color: #fff;
+            border-color: #1d4ed8;
+        }
+        .summary-panel {
+            display: none;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            background: #f8fafc;
+            padding: 12px;
+        }
+        .summary-panel.show { display: block; }
+
+        .sub-tabs {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .sub-tab {
+            background: #eef2ff;
+            color: #1e293b;
+            border: 1px solid #cbd5e1;
+            box-shadow: none;
+            padding: 7px 11px;
+            font-size: 13px;
+        }
+        .sub-tab.active {
+            background: #334155;
+            color: #fff;
+            border-color: #334155;
+        }
+        .sub-panel { display: none; }
+        .sub-panel.show { display: block; }
+
+        .field-row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .field-col {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 300px;
+        }
+        .field-row-split {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+        .field-label {
+            font-size: 0.9rem;
+            color: #334155;
+            font-weight: 600;
+        }
+        .hint {
+            margin: 0;
+            font-size: 0.84rem;
+            color: #64748b;
+        }
+        .except-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.8rem;
+            color: #4b5563;
+            cursor: pointer;
+            user-select: none;
+            width: fit-content;
+            margin-top: 2px;
+        }
+        .except-panel {
+            display: none;
+            margin-top: 6px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            background: #fff;
+            padding: 8px;
+            max-height: 220px;
+            overflow: auto;
+        }
+        .except-panel.open { display: block; }
+        .except-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 2px;
+            font-size: 0.9rem;
+            border-bottom: 1px solid #eef2f7;
+        }
+        .except-item:last-child { border-bottom: none; }
+
+        .radio-row {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-top: 3px;
+        }
+        .notice {
+            margin: 8px 0 0 0;
+            font-size: 0.84rem;
+            color: #475569;
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px dashed #cbd5e1;
+            background: #fff;
+        }
+        .extract-box {
+            border: 1px solid #dbe2f1;
+            border-radius: 12px;
+            background: #fff;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        .extract-q {
+            font-size: 0.92rem;
+            font-weight: 600;
+            color: #334155;
+            margin-bottom: 6px;
+        }
+        .extract-inline {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+    </style>
+</head>
+<body>
+    {% if train_metrics %}
+    <div class="metrics-box">
+        <div><strong>Current accuracy:</strong></div>
+        <div>Aggregation or not: {{ train_metrics.aggregation_pct }}%</div>
+        <div>Half-time: +-{{ train_metrics.halftime_err_pct }}% or +-{{ train_metrics.halftime_err_hours }} h</div>
+    </div>
+    {% endif %}
+
+    <h1>Smart summary</h1>
+    {% if not has_current_run %}
+    <p class="hint">No current run loaded. Load or create a run on the home screen first.</p>
+    {% endif %}
+
+    <div class="summary-shell">
+        <div class="summary-tabs">
+            <button type="button" class="summary-tab active" data-summary-tab="bulk-download">Bulk download</button>
+            <button type="button" class="summary-tab" data-summary-tab="extract-representative">Extract most representive curve/s</button>
+            <button type="button" class="summary-tab" data-summary-tab="saved-script">Saved script</button>
+        </div>
+
+        <div id="summary-panel-bulk-download" class="summary-panel show">
+            <div class="sub-tabs">
+                <button type="button" class="sub-tab active" data-sub-tab="halftime-plots">halftime plots</button>
+                <button type="button" class="sub-tab" data-sub-tab="aggregation-curves">aggregation-curve plots</button>
+                <button type="button" class="sub-tab" data-sub-tab="global-fitting">global fitting plot</button>
+            </div>
+
+            <div id="sub-panel-halftime-plots" class="sub-panel show">
+                <div class="field-col">
+                    <div class="field-row-split">
+                        <div>
+                            <div class="field-label">1. Extract from current: file or folder</div>
+                            <div class="radio-row">
+                                <label><input type="radio" name="half_source_kind" value="file" checked> file</label>
+                                <label><input type="radio" name="half_source_kind" value="folder"> folder</label>
+                            </div>
+                        </div>
+                        <label style="margin-top:22px;"><input type="checkbox" id="half-exclude-na" checked> Exclude non-aggregating wells</label>
+                    </div>
+                    <select id="half-folder-select" style="display:none; min-width:220px;">
+                        <option value="">Select folder</option>
+                        {% for f in saved_folders %}
+                        <option value="{{ f }}">{{ f }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="field-col" id="half-folder-except-wrap" style="margin-top:10px; display:none;">
+                    <div id="half-file-except-toggle" class="except-toggle">except files: <span>▼</span></div>
+                    <div id="half-file-except-panel" class="except-panel"></div>
+                    <label id="half-not-crossed-wrap" style="display:none; margin-top:6px;">
+                        <input type="checkbox" id="half-not-crossed">
+                        exclude crossed files
+                    </label>
+                </div>
+
+                <div class="field-col" style="margin-top:10px;">
+                    <div class="field-label">Groups to plot (global groups)</div>
+                    <div class="radio-row">
+                        <label><input type="checkbox" id="half-group-all" checked> Plot all groups together</label>
+                        <label><input type="checkbox" id="half-group-individual"> plot each group individually</label>
+                    </div>
+                    <div id="half-group-except-toggle" class="except-toggle">except groups: <span>▼</span></div>
+                    <div id="half-group-except-panel" class="except-panel"></div>
+                </div>
+
+                <div class="field-col" style="margin-top:10px;">
+                    <div class="field-label">logaritmic x-axis?</div>
+                    <div class="radio-row">
+                        <label><input type="radio" name="half_log_x" value="yes"> yes</label>
+                        <label><input type="radio" name="half_log_x" value="no" checked> no</label>
+                        <label><input type="radio" name="half_log_x" value="both"> both</label>
+                    </div>
+                </div>
+
+                <div class="extract-inline" style="justify-content:flex-end; margin-top:10px;">
+                    <button type="button" id="half-save-script-btn" style="background:#0f766e;">save script</button>
+                    <button type="button" id="half-download-plots-btn" style="background:#1d4ed8;">download plots</button>
+                </div>
+            </div>
+
+            <div id="sub-panel-aggregation-curves" class="sub-panel">
+                <div class="field-col">
+                    <div class="field-row-split">
+                        <div>
+                            <div class="field-label">1. Extract from current: file or folder</div>
+                            <div class="radio-row">
+                                <label><input type="radio" name="agg_source_kind" value="file" checked> file</label>
+                                <label><input type="radio" name="agg_source_kind" value="folder"> folder</label>
+                            </div>
+                        </div>
+                        <label style="margin-top:22px;"><input type="checkbox" id="agg-exclude-na" checked> Exclude non-aggregating wells</label>
+                    </div>
+                    <select id="agg-folder-select" style="display:none; min-width:220px;">
+                        <option value="">Select folder</option>
+                        {% for f in saved_folders %}
+                        <option value="{{ f }}">{{ f }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="field-col" id="agg-folder-except-wrap" style="margin-top:10px; display:none;">
+                    <div id="agg-file-except-toggle" class="except-toggle">except files: <span>▼</span></div>
+                    <div id="agg-file-except-panel" class="except-panel"></div>
+                    <label id="agg-not-crossed-wrap" style="display:none; margin-top:6px;">
+                        <input type="checkbox" id="agg-not-crossed">
+                        exclude crossed files
+                    </label>
+                </div>
+
+                <div class="field-col" style="margin-top:10px;">
+                    <div class="field-label">Groups to plot (global groups)</div>
+                    <div class="radio-row">
+                        <label><input type="checkbox" id="agg-group-all" checked> Plot all groups together</label>
+                        <label><input type="checkbox" id="agg-group-individual"> plot each group individually</label>
+                    </div>
+                    <div id="agg-group-except-toggle" class="except-toggle">except groups: <span>▼</span></div>
+                    <div id="agg-group-except-panel" class="except-panel"></div>
+                </div>
+
+                <div class="field-col" style="margin-top:10px;">
+                    <div class="field-label">normalized plots?</div>
+                    <div class="radio-row">
+                        <label><input type="radio" name="agg_normalized" value="yes"> yes</label>
+                        <label><input type="radio" name="agg_normalized" value="no" checked> no</label>
+                        <label><input type="radio" name="agg_normalized" value="both"> both</label>
+                    </div>
+                </div>
+
+                <div class="extract-inline" style="justify-content:flex-end; margin-top:10px;">
+                    <button type="button" id="agg-save-script-btn" style="background:#0f766e;">save script</button>
+                    <button type="button" id="agg-download-plots-btn" style="background:#1d4ed8;">download plots</button>
+                </div>
+            </div>
+            <div id="sub-panel-global-fitting" class="sub-panel">
+                <p class="hint">Settings panel placeholder for global fitting plot.</p>
+            </div>
+        </div>
+
+        <div id="summary-panel-extract-representative" class="summary-panel">
+            <div class="extract-box">
+                <div class="extract-q">1. Extract from current: file or folder</div>
+                <div class="extract-inline">
+                    <label><input type="radio" name="extract_source_kind" value="file" {% if extract_source_kind != 'folder' %}checked{% endif %}> file</label>
+                    <label><input type="radio" name="extract_source_kind" value="folder" {% if extract_source_kind == 'folder' %}checked{% endif %}> folder</label>
+                    <select id="extract-folder-select" style="display:none; min-width:220px;">
+                        <option value="">Select folder</option>
+                        {% for f in saved_folders %}
+                        <option value="{{ f }}" {% if extract_folder == f %}selected{% endif %}>{{ f }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="extract-box">
+                <div class="extract-q">2. Groups to extract from</div>
+                <div class="extract-inline">
+                    <label><input type="radio" name="extract_group_mode" value="all" {% if extract_group_mode != 'specific' %}checked{% endif %}> all groups</label>
+                    <label><input type="radio" name="extract_group_mode" value="specific" {% if extract_group_mode == 'specific' %}checked{% endif %}> specific groups</label>
+                </div>
+                <div id="extract-group-list" style="display:flex; flex-direction:column; gap:4px; margin-top:8px;"></div>
+            </div>
+
+            <div class="extract-box">
+                <div class="extract-q">3. How many curves from each group</div>
+                <div class="extract-inline">
+                    <input id="extract-curves-count" type="number" min="1" value="{{ extract_curves_count or 1 }}" style="width:110px;">
+                    <label id="extract-diverse-wrap" style="display:none; align-items:center; gap:6px; font-size:0.9rem; color:#334155;">
+                        <input id="extract-diverse-representation" type="checkbox" checked>
+                        Diverse Representation
+                    </label>
+                    <button type="button" id="extract-control-btn" style="background:#334155;">controll representive curve/s</button>
+                </div>
+                <p id="extract-curves-hint" class="hint">Max available from selected groups: 1</p>
+            </div>
+
+            {% if representative_preview_message %}
+            <p class="notice">{{ representative_preview_message }}</p>
+            {% endif %}
+            {% if representative_preview and representative_preview|length > 0 %}
+            <div class="extract-box">
+                <div class="extract-q">Representative curve control preview</div>
+                <p class="hint">Gray curves = non-representative. Colored curves = selected representative curve/s.</p>
+                {% for item in representative_preview %}
+                <div style="margin-top:10px; border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc; padding:10px;">
+                    <div style="font-weight:700; color:#0f172a;">{{ item.group_name }}</div>
+                    <div class="hint">Selected: {{ item.representatives|join(', ') if item.representatives else 'None' }}</div>
+                    <img src="{{ item.plot_url }}" alt="Representative preview {{ item.group_name }}" style="margin-top:8px; width:100%; max-width:900px; border:1px solid #cbd5e1; border-radius:8px; background:#fff;">
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="extract-inline" style="justify-content:flex-end; margin-top:10px;">
+                <button type="button" id="extract-save-script-btn" style="background:#0f766e;">save script</button>
+                <label id="extract-separate-group-wrap" style="display:none; align-items:center; gap:6px; font-size:0.88rem; color:#334155; margin-right:4px;">
+                    <input id="extract-separate-group-cb" type="checkbox">
+                    make seperate file for each group
+                </label>
+                <button type="button" id="extract-download-amylo-btn" style="background:#1d4ed8;">download to amylofit format</button>
+            </div>
+        </div>
+
+        <div id="summary-panel-saved-script" class="summary-panel">
+            {% set t12_scripts = (saved_summary_scripts or []) | selectattr("script_type", "equalto", "t1/2 plot script") | list %}
+            {% set agg_scripts = (saved_summary_scripts or []) | selectattr("script_type", "equalto", "aggregation-curve plot script") | list %}
+            <div class="extract-box">
+                <div class="extract-q">t1/2 plot script</div>
+                {% if t12_scripts and t12_scripts|length > 0 %}
+                    <div style="display:flex; flex-direction:column; gap:8px;">
+                    {% for sc in t12_scripts %}
+                        <div style="border:1px solid #dbe2f1; border-radius:8px; background:#fff; padding:8px 10px;">
+                            <div style="font-weight:700; color:#0f172a;">{{ sc.name }}</div>
+                            <div class="hint">{{ sc.created_at }}</div>
+                        </div>
+                    {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="hint">No saved t1/2 plot scripts yet.</p>
+                {% endif %}
+            </div>
+            <div class="extract-box">
+                <div class="extract-q">aggregation-curve plot script</div>
+                {% if agg_scripts and agg_scripts|length > 0 %}
+                    <div style="display:flex; flex-direction:column; gap:8px;">
+                    {% for sc in agg_scripts %}
+                        <div style="border:1px solid #dbe2f1; border-radius:8px; background:#fff; padding:8px 10px;">
+                            <div style="font-weight:700; color:#0f172a;">{{ sc.name }}</div>
+                            <div class="hint">{{ sc.created_at }}</div>
+                        </div>
+                    {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="hint">No saved aggregation-curve plot scripts yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <p style="margin-top:12px;"><a href="{{ url_for('main_bp.index') }}">Back</a></p>
+
+    <script>
+        const summaryTabs = Array.from(document.querySelectorAll(".summary-tab"));
+        const subTabs = Array.from(document.querySelectorAll(".sub-tab"));
+
+        summaryTabs.forEach((btn) => {
+            btn.addEventListener("click", function () {
+                const key = btn.dataset.summaryTab;
+                summaryTabs.forEach((b) => b.classList.remove("active"));
+                btn.classList.add("active");
+                document.querySelectorAll(".summary-panel").forEach((p) => p.classList.remove("show"));
+                const panel = document.getElementById(`summary-panel-${key}`);
+                if (panel) panel.classList.add("show");
+            });
+        });
+
+        subTabs.forEach((btn) => {
+            btn.addEventListener("click", function () {
+                const key = btn.dataset.subTab;
+                subTabs.forEach((b) => b.classList.remove("active"));
+                btn.classList.add("active");
+                document.querySelectorAll(".sub-panel").forEach((p) => p.classList.remove("show"));
+                const panel = document.getElementById(`sub-panel-${key}`);
+                if (panel) panel.classList.add("show");
+            });
+        });
+
+        const halfSourceKindEls = Array.from(document.querySelectorAll("input[name='half_source_kind']"));
+        const halfFolderSelect = document.getElementById("half-folder-select");
+        const halfGroupAll = document.getElementById("half-group-all");
+        const halfGroupIndividual = document.getElementById("half-group-individual");
+        const halfGroupExceptToggle = document.getElementById("half-group-except-toggle");
+        const halfGroupExceptPanel = document.getElementById("half-group-except-panel");
+        const halfFolderExceptWrap = document.getElementById("half-folder-except-wrap");
+        const halfFileExceptToggle = document.getElementById("half-file-except-toggle");
+        const halfFileExceptPanel = document.getElementById("half-file-except-panel");
+        const halfNotCrossedWrap = document.getElementById("half-not-crossed-wrap");
+        const halfNotCrossed = document.getElementById("half-not-crossed");
+        const halfExcludeNa = document.getElementById("half-exclude-na");
+        const halfSaveScriptBtn = document.getElementById("half-save-script-btn");
+        const halfDownloadPlotsBtn = document.getElementById("half-download-plots-btn");
+        const folderGlobalGroupsHalf = {{ folder_global_groups|tojson if folder_global_groups else "{}" }};
+        const folderRunsMapHalf = {{ folder_runs_map|tojson if folder_runs_map else "{}" }};
+        const runGroupsHalf = {{ current_file_groups|tojson if current_file_groups else "{}" }};
+
+        function selectedHalfSourceKind() {
+            const checked = halfSourceKindEls.find((el) => el.checked);
+            return checked ? checked.value : "file";
+        }
+        function currentHalfGroups() {
+            if (selectedHalfSourceKind() === "folder") {
+                const f = (halfFolderSelect && halfFolderSelect.value) ? halfFolderSelect.value : "";
+                const map = folderGlobalGroupsHalf[f] || {};
+                return (map && typeof map === "object") ? map : {};
+            }
+            return (runGroupsHalf && typeof runGroupsHalf === "object") ? runGroupsHalf : {};
+        }
+        function renderHalfGroupExceptPanel() {
+            if (!halfGroupExceptPanel) return;
+            const groups = Object.keys(currentHalfGroups());
+            halfGroupExceptPanel.innerHTML = "";
+            if (!groups.length) {
+                const p = document.createElement("div");
+                p.className = "hint";
+                p.textContent = "No groups available.";
+                halfGroupExceptPanel.appendChild(p);
+                return;
+            }
+            groups.forEach((g) => {
+                const row = document.createElement("label");
+                row.className = "except-item";
+                const cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.value = g;
+                const txt = document.createElement("span");
+                txt.textContent = g;
+                row.appendChild(cb);
+                row.appendChild(txt);
+                halfGroupExceptPanel.appendChild(row);
+            });
+        }
+        function renderHalfFileExceptPanel() {
+            if (!halfFileExceptPanel) return;
+            const folder = (halfFolderSelect && halfFolderSelect.value) ? halfFolderSelect.value : "";
+            const runs = Array.isArray(folderRunsMapHalf[folder]) ? folderRunsMapHalf[folder] : [];
+            halfFileExceptPanel.innerHTML = "";
+            if (!runs.length) {
+                const p = document.createElement("div");
+                p.className = "hint";
+                p.textContent = "No files in selected folder.";
+                halfFileExceptPanel.appendChild(p);
+            } else {
+                runs.forEach((r) => {
+                    const row = document.createElement("label");
+                    row.className = "except-item";
+                    const cb = document.createElement("input");
+                    cb.type = "checkbox";
+                    cb.value = r.id;
+                    const txt = document.createElement("span");
+                    txt.textContent = r.label || r.id;
+                    row.appendChild(cb);
+                    row.appendChild(txt);
+                    halfFileExceptPanel.appendChild(row);
+                });
+            }
+            if (halfNotCrossedWrap) {
+                const hasCrossed = runs.some((r) => !!r.is_crossed);
+                halfNotCrossedWrap.style.display = hasCrossed ? "inline-flex" : "none";
+            }
+        }
+        function syncHalfSourceUI() {
+            const isFolder = selectedHalfSourceKind() === "folder";
+            if (halfFolderSelect) {
+                halfFolderSelect.style.display = isFolder ? "inline-block" : "none";
+            }
+            if (halfFolderExceptWrap) {
+                halfFolderExceptWrap.style.display = isFolder ? "block" : "none";
+            }
+            renderHalfGroupExceptPanel();
+            if (isFolder) {
+                renderHalfFileExceptPanel();
+            }
+        }
+        if (halfGroupAll) {
+            halfGroupAll.checked = true;
+        }
+        if (halfGroupAll && halfGroupIndividual) {
+            halfGroupAll.addEventListener("change", function () {
+                if (halfGroupAll.checked) {
+                    halfGroupIndividual.checked = false;
+                } else if (!halfGroupIndividual.checked) {
+                    halfGroupAll.checked = true;
+                }
+            });
+            halfGroupIndividual.addEventListener("change", function () {
+                if (halfGroupIndividual.checked) {
+                    halfGroupAll.checked = false;
+                } else if (!halfGroupAll.checked) {
+                    halfGroupAll.checked = true;
+                }
+            });
+        }
+        if (halfGroupExceptToggle && halfGroupExceptPanel) {
+            halfGroupExceptToggle.addEventListener("click", function () {
+                halfGroupExceptPanel.classList.toggle("open");
+            });
+        }
+        if (halfFileExceptToggle && halfFileExceptPanel) {
+            halfFileExceptToggle.addEventListener("click", function () {
+                halfFileExceptPanel.classList.toggle("open");
+            });
+        }
+        halfSourceKindEls.forEach((el) => el.addEventListener("change", syncHalfSourceUI));
+        if (halfFolderSelect) halfFolderSelect.addEventListener("change", syncHalfSourceUI);
+        syncHalfSourceUI();
+
+        if (halfSaveScriptBtn) {
+            halfSaveScriptBtn.addEventListener("click", async function () {
+                const name = window.prompt("Script name:");
+                if (name === null) return;
+                const clean = (name || "").trim();
+                if (!clean) {
+                    window.alert("Script name is required.");
+                    return;
+                }
+                const logChoice = (document.querySelector("input[name='half_log_x']:checked") || {}).value || "no";
+                const payload = {
+                    name: clean,
+                    options: {
+                        source_kind: selectedHalfSourceKind(),
+                        plot_all_groups_together: !!(halfGroupAll && halfGroupAll.checked),
+                        plot_each_group_individually: !!(halfGroupIndividual && halfGroupIndividual.checked),
+                        log_x_axis: logChoice,
+                        exclude_non_aggregating_wells: !!(halfExcludeNa && halfExcludeNa.checked),
+                        exclude_crossed_files: !!(halfNotCrossed && halfNotCrossed.checked),
+                    },
+                };
+                try {
+                    const resp = await fetch("{{ url_for('smart_summary.smart_summary_save_half_t12_script') }}", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify(payload),
+                    });
+                    const data = await resp.json().catch(() => ({}));
+                    if (!resp.ok || !data.ok) {
+                        window.alert("Could not save script.");
+                        return;
+                    }
+                    window.location.reload();
+                } catch (err) {
+                    window.alert("Could not save script.");
+                }
+            });
+        }
+        if (halfDownloadPlotsBtn) {
+            halfDownloadPlotsBtn.addEventListener("click", function () {
+                const params = new URLSearchParams();
+                const uploadSetId = {{ upload_set_id|tojson }};
+                if (uploadSetId) params.set("upload_set_id", uploadSetId);
+                params.set("half_source_kind", selectedHalfSourceKind());
+                params.set("half_folder", halfFolderSelect ? (halfFolderSelect.value || "") : "");
+                params.set("half_group_all", (halfGroupAll && halfGroupAll.checked) ? "1" : "0");
+                params.set("half_group_individual", (halfGroupIndividual && halfGroupIndividual.checked) ? "1" : "0");
+                params.set("half_exclude_na", (halfExcludeNa && halfExcludeNa.checked) ? "1" : "0");
+                params.set("half_not_crossed", (halfNotCrossed && halfNotCrossed.checked) ? "1" : "0");
+                const logChoice = (document.querySelector("input[name='half_log_x']:checked") || {}).value || "no";
+                params.set("half_log_x", logChoice);
+                Array.from(document.querySelectorAll("#half-group-except-panel input[type='checkbox']:checked"))
+                    .forEach((cb) => params.append("half_except_groups", cb.value));
+                Array.from(document.querySelectorAll("#half-file-except-panel input[type='checkbox']:checked"))
+                    .forEach((cb) => params.append("half_except_files", cb.value));
+                window.location.href = `{{ url_for('smart_summary.smart_summary_bulk_download_halftime') }}?${params.toString()}`;
+            });
+        }
+
+        const aggSourceKindEls = Array.from(document.querySelectorAll("input[name='agg_source_kind']"));
+        const aggFolderSelect = document.getElementById("agg-folder-select");
+        const aggGroupAll = document.getElementById("agg-group-all");
+        const aggGroupIndividual = document.getElementById("agg-group-individual");
+        const aggGroupExceptToggle = document.getElementById("agg-group-except-toggle");
+        const aggGroupExceptPanel = document.getElementById("agg-group-except-panel");
+        const aggFolderExceptWrap = document.getElementById("agg-folder-except-wrap");
+        const aggFileExceptToggle = document.getElementById("agg-file-except-toggle");
+        const aggFileExceptPanel = document.getElementById("agg-file-except-panel");
+        const aggNotCrossedWrap = document.getElementById("agg-not-crossed-wrap");
+        const aggNotCrossed = document.getElementById("agg-not-crossed");
+        const aggExcludeNa = document.getElementById("agg-exclude-na");
+        const aggSaveScriptBtn = document.getElementById("agg-save-script-btn");
+        const aggDownloadPlotsBtn = document.getElementById("agg-download-plots-btn");
+        const folderGlobalGroupsAgg = {{ folder_global_groups|tojson if folder_global_groups else "{}" }};
+        const folderRunsMapAgg = {{ folder_runs_map|tojson if folder_runs_map else "{}" }};
+        const runGroupsAgg = {{ current_file_groups|tojson if current_file_groups else "{}" }};
+
+        function selectedAggSourceKind() {
+            const checked = aggSourceKindEls.find((el) => el.checked);
+            return checked ? checked.value : "file";
+        }
+        function currentAggGroups() {
+            if (selectedAggSourceKind() === "folder") {
+                const f = (aggFolderSelect && aggFolderSelect.value) ? aggFolderSelect.value : "";
+                const map = folderGlobalGroupsAgg[f] || {};
+                return (map && typeof map === "object") ? map : {};
+            }
+            return (runGroupsAgg && typeof runGroupsAgg === "object") ? runGroupsAgg : {};
+        }
+        function renderAggGroupExceptPanel() {
+            if (!aggGroupExceptPanel) return;
+            const groups = Object.keys(currentAggGroups());
+            aggGroupExceptPanel.innerHTML = "";
+            if (!groups.length) {
+                const p = document.createElement("div");
+                p.className = "hint";
+                p.textContent = "No groups available.";
+                aggGroupExceptPanel.appendChild(p);
+                return;
+            }
+            groups.forEach((g) => {
+                const row = document.createElement("label");
+                row.className = "except-item";
+                const cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.value = g;
+                const txt = document.createElement("span");
+                txt.textContent = g;
+                row.appendChild(cb);
+                row.appendChild(txt);
+                aggGroupExceptPanel.appendChild(row);
+            });
+        }
+        function renderAggFileExceptPanel() {
+            if (!aggFileExceptPanel) return;
+            const folder = (aggFolderSelect && aggFolderSelect.value) ? aggFolderSelect.value : "";
+            const runs = Array.isArray(folderRunsMapAgg[folder]) ? folderRunsMapAgg[folder] : [];
+            aggFileExceptPanel.innerHTML = "";
+            if (!runs.length) {
+                const p = document.createElement("div");
+                p.className = "hint";
+                p.textContent = "No files in selected folder.";
+                aggFileExceptPanel.appendChild(p);
+            } else {
+                runs.forEach((r) => {
+                    const row = document.createElement("label");
+                    row.className = "except-item";
+                    const cb = document.createElement("input");
+                    cb.type = "checkbox";
+                    cb.value = r.id;
+                    const txt = document.createElement("span");
+                    txt.textContent = r.label || r.id;
+                    row.appendChild(cb);
+                    row.appendChild(txt);
+                    aggFileExceptPanel.appendChild(row);
+                });
+            }
+            if (aggNotCrossedWrap) {
+                const hasCrossed = runs.some((r) => !!r.is_crossed);
+                aggNotCrossedWrap.style.display = hasCrossed ? "inline-flex" : "none";
+            }
+        }
+        function syncAggSourceUI() {
+            const isFolder = selectedAggSourceKind() === "folder";
+            if (aggFolderSelect) aggFolderSelect.style.display = isFolder ? "inline-block" : "none";
+            if (aggFolderExceptWrap) aggFolderExceptWrap.style.display = isFolder ? "block" : "none";
+            renderAggGroupExceptPanel();
+            if (isFolder) renderAggFileExceptPanel();
+        }
+        if (aggGroupAll) aggGroupAll.checked = true;
+        if (aggGroupAll && aggGroupIndividual) {
+            aggGroupAll.addEventListener("change", function () {
+                if (aggGroupAll.checked) aggGroupIndividual.checked = false;
+                else if (!aggGroupIndividual.checked) aggGroupAll.checked = true;
+            });
+            aggGroupIndividual.addEventListener("change", function () {
+                if (aggGroupIndividual.checked) aggGroupAll.checked = false;
+                else if (!aggGroupAll.checked) aggGroupAll.checked = true;
+            });
+        }
+        if (aggGroupExceptToggle && aggGroupExceptPanel) {
+            aggGroupExceptToggle.addEventListener("click", function () {
+                aggGroupExceptPanel.classList.toggle("open");
+            });
+        }
+        if (aggFileExceptToggle && aggFileExceptPanel) {
+            aggFileExceptToggle.addEventListener("click", function () {
+                aggFileExceptPanel.classList.toggle("open");
+            });
+        }
+        aggSourceKindEls.forEach((el) => el.addEventListener("change", syncAggSourceUI));
+        if (aggFolderSelect) aggFolderSelect.addEventListener("change", syncAggSourceUI);
+        syncAggSourceUI();
+
+        if (aggSaveScriptBtn) {
+            aggSaveScriptBtn.addEventListener("click", async function () {
+                const name = window.prompt("Script name:");
+                if (name === null) return;
+                const clean = (name || "").trim();
+                if (!clean) {
+                    window.alert("Script name is required.");
+                    return;
+                }
+                const normChoice = (document.querySelector("input[name='agg_normalized']:checked") || {}).value || "no";
+                const payload = {
+                    name: clean,
+                    options: {
+                        source_kind: selectedAggSourceKind(),
+                        plot_all_groups_together: !!(aggGroupAll && aggGroupAll.checked),
+                        plot_each_group_individually: !!(aggGroupIndividual && aggGroupIndividual.checked),
+                        normalized_plots: normChoice,
+                        exclude_non_aggregating_wells: !!(aggExcludeNa && aggExcludeNa.checked),
+                        exclude_crossed_files: !!(aggNotCrossed && aggNotCrossed.checked),
+                    },
+                };
+                try {
+                    const resp = await fetch("{{ url_for('smart_summary.smart_summary_save_agg_script') }}", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify(payload),
+                    });
+                    const data = await resp.json().catch(() => ({}));
+                    if (!resp.ok || !data.ok) {
+                        window.alert("Could not save script.");
+                        return;
+                    }
+                    window.location.reload();
+                } catch (err) {
+                    window.alert("Could not save script.");
+                }
+            });
+        }
+        if (aggDownloadPlotsBtn) {
+            aggDownloadPlotsBtn.addEventListener("click", function () {
+                const params = new URLSearchParams();
+                const uploadSetId = {{ upload_set_id|tojson }};
+                if (uploadSetId) params.set("upload_set_id", uploadSetId);
+                params.set("agg_source_kind", selectedAggSourceKind());
+                params.set("agg_folder", aggFolderSelect ? (aggFolderSelect.value || "") : "");
+                params.set("agg_group_all", (aggGroupAll && aggGroupAll.checked) ? "1" : "0");
+                params.set("agg_group_individual", (aggGroupIndividual && aggGroupIndividual.checked) ? "1" : "0");
+                params.set("agg_exclude_na", (aggExcludeNa && aggExcludeNa.checked) ? "1" : "0");
+                params.set("agg_not_crossed", (aggNotCrossed && aggNotCrossed.checked) ? "1" : "0");
+                const normChoice = (document.querySelector("input[name='agg_normalized']:checked") || {}).value || "no";
+                params.set("agg_normalized", normChoice);
+                Array.from(document.querySelectorAll("#agg-group-except-panel input[type='checkbox']:checked"))
+                    .forEach((cb) => params.append("agg_except_groups", cb.value));
+                Array.from(document.querySelectorAll("#agg-file-except-panel input[type='checkbox']:checked"))
+                    .forEach((cb) => params.append("agg_except_files", cb.value));
+                window.location.href = `{{ url_for('smart_summary.smart_summary_bulk_download_aggregation') }}?${params.toString()}`;
+            });
+        }
+
+        // Extract menu logic.
+        (function () {
+            const fileGroups = {{ current_file_groups|tojson if current_file_groups else "{}" }};
+            const folderGroups = {{ folder_global_groups|tojson if folder_global_groups else "{}" }};
+            const preselectedExtractGroups = {{ extract_groups|tojson if extract_groups else "[]" }};
+            const isControlRepresentative = {{ 1 if control_representative else 0 }};
+            const sourceKindEls = Array.from(document.querySelectorAll("input[name='extract_source_kind']"));
+            const groupModeEls = Array.from(document.querySelectorAll("input[name='extract_group_mode']"));
+            const folderSelect = document.getElementById("extract-folder-select");
+            const groupList = document.getElementById("extract-group-list");
+            const curvesCountEl = document.getElementById("extract-curves-count");
+            const curvesHintEl = document.getElementById("extract-curves-hint");
+            const controlBtn = document.getElementById("extract-control-btn");
+            const saveScriptBtn = document.getElementById("extract-save-script-btn");
+            const downloadBtn = document.getElementById("extract-download-amylo-btn");
+            const diverseWrap = document.getElementById("extract-diverse-wrap");
+            const diverseCb = document.getElementById("extract-diverse-representation");
+            const separateWrap = document.getElementById("extract-separate-group-wrap");
+            const separateCb = document.getElementById("extract-separate-group-cb");
+            const initialDiverse = {{ 1 if diverse_representation else 0 }};
+            if (!groupList || !curvesCountEl || !curvesHintEl) return;
+
+            function selectedSourceKind() {
+                const checked = sourceKindEls.find((el) => el.checked);
+                return checked ? checked.value : "file";
+            }
+            function selectedGroupMode() {
+                const checked = groupModeEls.find((el) => el.checked);
+                return checked ? checked.value : "all";
+            }
+            function currentGroupMap() {
+                if (selectedSourceKind() === "folder") {
+                    const f = (folderSelect && folderSelect.value) ? folderSelect.value : "";
+                    const map = folderGroups[f] || {};
+                    return (map && typeof map === "object") ? map : {};
+                }
+                return (fileGroups && typeof fileGroups === "object") ? fileGroups : {};
+            }
+            function selectedGroupsExtract() {
+                const map = currentGroupMap();
+                const allNames = Object.keys(map);
+                if (selectedGroupMode() === "all") return allNames;
+                return Array.from(document.querySelectorAll(".extract-group-item"))
+                    .filter((cb) => cb.checked)
+                    .map((cb) => cb.value);
+            }
+            function renderExtractGroupList() {
+                const map = currentGroupMap();
+                const names = Object.keys(map);
+                groupList.innerHTML = "";
+                if (!names.length) {
+                    const p = document.createElement("span");
+                    p.className = "hint";
+                    p.textContent = "No groups available for this source.";
+                    groupList.appendChild(p);
+                    renderCurveCountBounds();
+                    return;
+                }
+                names.forEach((name) => {
+                    const row = document.createElement("label");
+                    const cb = document.createElement("input");
+                    cb.type = "checkbox";
+                    cb.className = "extract-group-item";
+                    cb.value = name;
+                    cb.disabled = selectedGroupMode() === "all";
+                    cb.checked = selectedGroupMode() === "all" || preselectedExtractGroups.includes(name);
+                    row.appendChild(cb);
+                    row.appendChild(document.createTextNode(" " + name));
+                    groupList.appendChild(row);
+                });
+                renderCurveCountBounds();
+            }
+            function renderCurveCountBounds() {
+                const map = currentGroupMap();
+                const groups = selectedGroupsExtract();
+                let maxCount = 1;
+                groups.forEach((g) => {
+                    const n = Array.isArray(map[g]) ? map[g].length : 0;
+                    if (n > maxCount) maxCount = n;
+                });
+                curvesCountEl.min = "1";
+                curvesCountEl.max = String(Math.max(1, maxCount));
+                if (!curvesCountEl.value || Number(curvesCountEl.value) < 1) {
+                    curvesCountEl.value = "1";
+                }
+                if (Number(curvesCountEl.value) > maxCount) {
+                    curvesCountEl.value = String(Math.max(1, maxCount));
+                }
+                curvesHintEl.textContent = `Max available from selected groups: ${Math.max(1, maxCount)}`;
+                updateDiverseUi();
+                updateSeparateGroupUi();
+            }
+            function updateSeparateGroupUi() {
+                if (!separateWrap || !separateCb) return;
+                const groups = selectedGroupsExtract();
+                if (groups.length > 1) {
+                    separateWrap.style.display = "inline-flex";
+                } else {
+                    separateWrap.style.display = "none";
+                    separateCb.checked = false;
+                }
+            }
+            function updateDiverseUi() {
+                if (!diverseWrap || !diverseCb) return;
+                const n = Math.max(1, Number(curvesCountEl.value || "1"));
+                if (n > 1) {
+                    const wasHidden = (diverseWrap.style.display === "none" || !diverseWrap.style.display);
+                    diverseWrap.style.display = "inline-flex";
+                    if (wasHidden) {
+                        diverseCb.checked = true;
+                    }
+                } else {
+                    diverseWrap.style.display = "none";
+                    diverseCb.checked = false;
+                }
+            }
+            function syncSourceUI() {
+                if (folderSelect) {
+                    folderSelect.style.display = (selectedSourceKind() === "folder") ? "inline-block" : "none";
+                }
+                renderExtractGroupList();
+            }
+
+            sourceKindEls.forEach((el) => el.addEventListener("change", syncSourceUI));
+            groupModeEls.forEach((el) => el.addEventListener("change", renderExtractGroupList));
+            if (folderSelect) folderSelect.addEventListener("change", renderExtractGroupList);
+            curvesCountEl.addEventListener("input", updateDiverseUi);
+            curvesCountEl.addEventListener("change", updateDiverseUi);
+            document.addEventListener("change", function (evt) {
+                if (evt.target && evt.target.classList && evt.target.classList.contains("extract-group-item")) {
+                    renderCurveCountBounds();
+                }
+            });
+            if (controlBtn) {
+                controlBtn.addEventListener("click", function () {
+                    const params = new URLSearchParams(window.location.search);
+                    params.delete("control_representative");
+                    params.set("extract_source_kind", selectedSourceKind());
+                    params.set("extract_group_mode", selectedGroupMode());
+                    params.set("extract_folder", folderSelect ? (folderSelect.value || "") : "");
+                    params.set("extract_curves_count", String(Math.max(1, Number(curvesCountEl.value || "1"))));
+                    if (diverseCb && Number(curvesCountEl.value || "1") > 1) {
+                        params.set("diverse_representation", diverseCb.checked ? "1" : "0");
+                    } else {
+                        params.set("diverse_representation", "0");
+                    }
+                    params.delete("extract_groups");
+                    if (selectedGroupMode() === "specific") {
+                        selectedGroupsExtract().forEach((g) => params.append("extract_groups", g));
+                    }
+                    const uploadSetId = {{ upload_set_id|tojson }};
+                    if (uploadSetId) {
+                        params.set("upload_set_id", uploadSetId);
+                    }
+                    window.location.href = `{{ url_for('smart_summary.representative_control_view') }}?${params.toString()}`;
+                });
+            }
+            if (saveScriptBtn) {
+                saveScriptBtn.addEventListener("click", function () {
+                    const name = window.prompt("Script name:");
+                    if (name === null) return;
+                    const clean = (name || "").trim();
+                    if (!clean) {
+                        window.alert("Script name is required.");
+                        return;
+                    }
+                    window.alert(`Saved script: ${clean}`);
+                });
+            }
+            if (downloadBtn) {
+                downloadBtn.addEventListener("click", function () {
+                    const params = new URLSearchParams();
+                    const uploadSetId = {{ upload_set_id|tojson }};
+                    if (uploadSetId) params.set("upload_set_id", uploadSetId);
+                    params.set("extract_source_kind", selectedSourceKind());
+                    params.set("extract_group_mode", selectedGroupMode());
+                    params.set("extract_folder", folderSelect ? (folderSelect.value || "") : "");
+                    params.set("extract_curves_count", String(Math.max(1, Number(curvesCountEl.value || "1"))));
+                    if (diverseCb && Number(curvesCountEl.value || "1") > 1) {
+                        params.set("diverse_representation", diverseCb.checked ? "1" : "0");
+                    } else {
+                        params.set("diverse_representation", "0");
+                    }
+                    if (separateCb) {
+                        params.set("separate_per_group", separateCb.checked ? "1" : "0");
+                    }
+                    if (selectedGroupMode() === "specific") {
+                        selectedGroupsExtract().forEach((g) => params.append("extract_groups", g));
+                    }
+                    window.location.href = `{{ url_for('smart_summary.smart_summary_extract_download_amylofit') }}?${params.toString()}`;
+                });
+            }
+            syncSourceUI();
+            if (diverseCb) {
+                diverseCb.checked = !!initialDiverse;
+            }
+            updateDiverseUi();
+            updateSeparateGroupUi();
+            if (isControlRepresentative) {
+                const extractTab = document.querySelector('.summary-tab[data-summary-tab="extract-representative"]');
+                if (extractTab) extractTab.click();
+            }
+        })();
+    </script>
+</body>
+</html>

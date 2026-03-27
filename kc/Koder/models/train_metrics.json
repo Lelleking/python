@@ -1,14 +1,14 @@
 {
-  "aggregation_accuracy_mean": 0.9261878213904297,
-  "aggregation_accuracy_std": 0.02922796918983401,
-  "halftime_log_mae_mean": 0.4106181097684291,
-  "halftime_log_mae_std": 0.0939121571192941,
-  "halftime_mae_hours_mean": 16.035762510829954,
-  "halftime_mae_hours_std": 3.9344449994807307,
-  "halftime_mape_pct_mean": 39.332773610489674,
-  "halftime_mape_pct_std": 5.285985673577576,
-  "baseline_mae_mean": 1556.7812853357173,
-  "baseline_mae_std": 694.8261100372954,
-  "plateau_mae_mean": 3343.532649194,
-  "plateau_mae_std": 1193.9509032986946
+  "aggregation_accuracy_mean": 0.9191877847412379,
+  "aggregation_accuracy_std": 0.028405629022519696,
+  "halftime_log_mae_mean": 0.5395629977614346,
+  "halftime_log_mae_std": 0.2959904365007154,
+  "halftime_mae_hours_mean": 16.41157139610653,
+  "halftime_mae_hours_std": 3.3156987233092874,
+  "halftime_mape_pct_mean": 103.82468816818265,
+  "halftime_mape_pct_std": 96.09229000819207,
+  "baseline_mae_mean": 1821.7025248208283,
+  "baseline_mae_std": 985.9468537708843,
+  "plateau_mae_mean": 6288.177644150509,
+  "plateau_mae_std": 6183.068985985058
 }

@@ -52,6 +52,8 @@
     <form method="post">
         <input type="hidden" name="thalf_session_id" value="{{ thalf_session_id }}">
         <input type="hidden" id="thalf-groups-json" name="thalf_groups_json" value='{{ thalf_groups | default({}) | tojson }}'>
+        <input type="hidden" id="thalf-group-attributes-json" name="thalf_group_attributes_json" value='{{ thalf_group_attributes | default({}) | tojson }}'>
+        <input type="hidden" id="thalf-active-attribute-name" name="thalf_active_attribute_name" value='{{ thalf_active_attribute_name | default("") }}'>
 
         <div style="margin-bottom:10px; display:flex; gap:8px; flex-wrap:wrap;">
             <button type="button" id="select-all-btn">Select all</button>
@@ -68,6 +70,10 @@
             <input type="text" id="group-name" placeholder="group name">
             <button type="button" id="assign-group-btn">Assign checked wells</button>
             <button type="button" id="clear-groups-btn">Clear group data</button>
+            {% if is_crossed %}
+            <button type="button" id="add-group-attribute-btn">Add group attribute</button>
+            <span style="font-size:0.78rem; color:#6b7280;">for example temperature</span>
+            {% endif %}
         </div>
 
         <div id="group-preview" style="display:none;"></div>
@@ -79,6 +85,9 @@
                     <th>Well</th>
                     <th>Halftime</th>
                     <th>Group</th>
+                    {% if is_crossed %}
+                    <th id="group-attribute-header">{{ thalf_active_attribute_name if thalf_active_attribute_name else "Attribute" }}</th>
+                    {% endif %}
                     <th class="agg-curve-col">Aggregation curve</th>
                 </tr>
             </thead>
@@ -89,6 +98,11 @@
                     <td>{{ row.well }}</td>
                     <td>{{ row.halftime }}</td>
                     <td class="group-cell" data-well="{{ row.well }}">-</td>
+                    {% if is_crossed %}
+                    <td class="group-attr-cell" data-well="{{ row.well }}">
+                        <input type="text" class="group-attr-input" data-well="{{ row.well }}" style="width:110px;" placeholder="-">
+                    </td>
+                    {% endif %}
                     <td class="agg-curve-col">
                         <div class="mini-curve-wrap">
                             <svg class="mini-curve" data-well="{{ row.well }}" viewBox="0 0 240 100" preserveAspectRatio="none"></svg>
@@ -111,6 +125,16 @@
         </details>
 
         <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+            {% if is_crossed %}
+            <div id="axis-attribute-controls" style="display:none; align-items:center; gap:8px; flex-wrap:wrap;">
+                <label style="font-size:0.9rem;">x-axis:
+                    <select name="x_axis_attr" id="x-axis-attr-select"></select>
+                </label>
+                <label style="font-size:0.9rem;">y-axis:
+                    <select name="y_axis_attr" id="y-axis-attr-select"></select>
+                </label>
+            </div>
+            {% endif %}
             <button type="submit" formaction="/plot/thalf?scale=log">Plot t1/2 versus log(conc)</button>
             <button type="submit" formaction="/plot/thalf?scale=linear">Plot t1/2 vs conc</button>
         </div>
@@ -132,9 +156,17 @@
         const groupNameInput = document.getElementById("group-name");
         const groupPreview = document.getElementById("group-preview");
         const groupsInput = document.getElementById("thalf-groups-json");
+        const groupAttrsInput = document.getElementById("thalf-group-attributes-json");
         const showAggCurvesToggle = document.getElementById("show-agg-curves-toggle");
         const resultsTable = document.getElementById("results-table");
         const resultsTbody = resultsTable ? resultsTable.querySelector("tbody") : null;
+        const addGroupAttributeBtn = document.getElementById("add-group-attribute-btn");
+        const attrHeaderEl = document.getElementById("group-attribute-header");
+        const axisControls = document.getElementById("axis-attribute-controls");
+        const xAxisSelect = document.getElementById("x-axis-attr-select");
+        const yAxisSelect = document.getElementById("y-axis-attr-select");
+        const initialXAxis = {{ x_axis_attr | default("conc") | tojson }};
+        const initialYAxis = {{ y_axis_attr | default("half_time") | tojson }};
         const curvePreviews = {{ curve_previews | default({}) | tojson }};
         let miniCurvesRendered = false;
         let currentGroupColorMap = {};
@@ -153,10 +185,17 @@
         ];
 
         let groups = {};
+        let groupAttributes = {};
+        let activeAttributeName = (document.getElementById("thalf-active-attribute-name")?.value || "").trim();
         try {
             groups = JSON.parse(groupsInput.value || "{}");
         } catch {
             groups = {};
+        }
+        try {
+            groupAttributes = JSON.parse(groupAttrsInput.value || "{}");
+        } catch {
+            groupAttributes = {};
         }
 
         function getWellBoxes() {
@@ -169,6 +208,13 @@
 
         function syncGroupsInput() {
             groupsInput.value = JSON.stringify(groups);
+            if (groupAttrsInput) {
+                groupAttrsInput.value = JSON.stringify(groupAttributes || {});
+            }
+            const activeAttrInput = document.getElementById("thalf-active-attribute-name");
+            if (activeAttrInput) {
+                activeAttrInput.value = activeAttributeName || "";
+            }
         }
 
         let saveTimer = null;
@@ -188,6 +234,13 @@
                 const body = new URLSearchParams();
                 body.set("thalf_session_id", thalfSessionId);
                 body.set("thalf_groups_json", groupsInput.value || "{}");
+                if (groupAttrsInput) {
+                    body.set("thalf_group_attributes_json", groupAttrsInput.value || "{}");
+                }
+                const activeAttrInput = document.getElementById("thalf-active-attribute-name");
+                if (activeAttrInput) {
+                    body.set("thalf_active_attribute_name", activeAttrInput.value || "");
+                }
                 fetch("/groups/save_from_thalf", {
                     method: "POST",
                     headers: {"Content-Type": "application/x-www-form-urlencoded"},
@@ -295,7 +348,7 @@
                     <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
                         <div>
                             <span style="display:inline-block;width:10px;height:10px;border-radius:999px;margin-right:8px;vertical-align:middle;background:${color};"></span>
-                            <strong>${name}</strong>: ${wells.join(", ")}
+                            <strong class="group-name-editable" data-group-name="${name}" title="Double-click to rename group">${name}</strong>: ${wells.join(", ")}
                         </div>
                         <div style="display:flex; align-items:center; gap:8px;">
                             <button type="button" class="group-show-all-inline-btn" data-group-name="${name}">${expanded ? "Merge" : "Show all"}</button>
@@ -321,6 +374,37 @@
             });
         }
 
+        function updateAttributeColumnHeader() {
+            if (!attrHeaderEl) return;
+            attrHeaderEl.textContent = activeAttributeName || "Attribute";
+        }
+
+        function updateAttributeCells() {
+            const wellToGroup = {};
+            Object.keys(groups).forEach(groupName => {
+                (groups[groupName] || []).forEach((well) => {
+                    wellToGroup[well] = groupName;
+                });
+            });
+            document.querySelectorAll(".group-attr-input").forEach((input) => {
+                const well = input.dataset.well;
+                const groupName = wellToGroup[well];
+                if (!activeAttributeName || !groupName) {
+                    input.value = "";
+                    input.disabled = true;
+                    input.placeholder = "-";
+                    return;
+                }
+                input.disabled = false;
+                if (!groupAttributes[groupName] || typeof groupAttributes[groupName] !== "object") {
+                    groupAttributes[groupName] = {};
+                }
+                const raw = groupAttributes[groupName][activeAttributeName];
+                input.value = (raw === undefined || raw === null || raw === "") ? "" : String(raw);
+                input.placeholder = activeAttributeName;
+            });
+        }
+
         function renderPreview() {
             const labels = Object.keys(groups).sort();
             const groupColorMap = {};
@@ -336,6 +420,86 @@
             syncGroupsInput();
             scheduleGroupPersist();
             updateGroupedRowView();
+            updateAttributeColumnHeader();
+            updateAttributeCells();
+            updateAxisAttributeControls();
+        }
+
+        function renameGroup(oldName, newName) {
+            const from = String(oldName || "").trim();
+            const to = String(newName || "").trim();
+            if (!from || !to || from === to || !Object.prototype.hasOwnProperty.call(groups, from)) {
+                return false;
+            }
+            const fromWells = Array.isArray(groups[from]) ? groups[from].slice() : [];
+            if (Object.prototype.hasOwnProperty.call(groups, to)) {
+                const merged = Array.from(new Set([...(groups[to] || []), ...fromWells])).sort();
+                groups[to] = merged;
+            } else {
+                groups[to] = fromWells;
+            }
+            delete groups[from];
+
+            if (groupAttributes && typeof groupAttributes === "object") {
+                const fromAttrs = (groupAttributes[from] && typeof groupAttributes[from] === "object") ? groupAttributes[from] : {};
+                if (Object.prototype.hasOwnProperty.call(groupAttributes, to)) {
+                    groupAttributes[to] = Object.assign({}, groupAttributes[to] || {}, fromAttrs || {});
+                } else if (Object.keys(fromAttrs).length) {
+                    groupAttributes[to] = Object.assign({}, fromAttrs);
+                }
+                delete groupAttributes[from];
+            }
+            if (expandedGroups.has(from)) {
+                expandedGroups.delete(from);
+                expandedGroups.add(to);
+            }
+            return true;
+        }
+
+        function listAttributeNames() {
+            const names = new Set();
+            Object.keys(groupAttributes || {}).forEach((g) => {
+                const attrs = groupAttributes[g];
+                if (!attrs || typeof attrs !== "object") return;
+                Object.keys(attrs).forEach((a) => {
+                    const clean = (a || "").trim();
+                    if (clean) names.add(clean);
+                });
+            });
+            return Array.from(names).sort((a, b) => a.localeCompare(b));
+        }
+
+        function updateAxisAttributeControls() {
+            if (!axisControls || !xAxisSelect || !yAxisSelect) return;
+            const customAttrs = listAttributeNames();
+            const hasCustom = customAttrs.length > 0;
+            axisControls.style.display = hasCustom ? "inline-flex" : "none";
+
+            const xCurrent = xAxisSelect.value || initialXAxis || "conc";
+            const yCurrent = yAxisSelect.value || initialYAxis || "half_time";
+            const xOptions = [{value: "conc", label: "Concentration (µM)"}].concat(
+                customAttrs.map((a) => ({value: a, label: a}))
+            );
+            const yOptions = [{value: "half_time", label: "Half-time"}].concat(
+                customAttrs.map((a) => ({value: a, label: a}))
+            );
+
+            xAxisSelect.innerHTML = "";
+            yAxisSelect.innerHTML = "";
+            xOptions.forEach((opt) => {
+                const el = document.createElement("option");
+                el.value = opt.value;
+                el.textContent = opt.label;
+                xAxisSelect.appendChild(el);
+            });
+            yOptions.forEach((opt) => {
+                const el = document.createElement("option");
+                el.value = opt.value;
+                el.textContent = opt.label;
+                yAxisSelect.appendChild(el);
+            });
+            xAxisSelect.value = xOptions.some(o => o.value === xCurrent) ? xCurrent : "conc";
+            yAxisSelect.value = yOptions.some(o => o.value === yCurrent) ? yCurrent : "half_time";
         }
 
         function renderMiniCurves() {
@@ -468,6 +632,53 @@
             });
         }
 
+        if (addGroupAttributeBtn) {
+            addGroupAttributeBtn.addEventListener("click", function () {
+                const attrNameRaw = window.prompt("Attribute name (e.g. temperature):", "");
+                if (attrNameRaw === null) return;
+                const attrName = (attrNameRaw || "").trim();
+                if (!attrName) return;
+                activeAttributeName = attrName;
+                Object.keys(groups || {}).forEach((g) => {
+                    if (!groupAttributes[g] || typeof groupAttributes[g] !== "object") {
+                        groupAttributes[g] = {};
+                    }
+                });
+                syncGroupsInput();
+                scheduleGroupPersist();
+                updateAttributeColumnHeader();
+                updateAttributeCells();
+                updateAxisAttributeControls();
+            });
+        }
+
+        document.addEventListener("change", function (e) {
+            const input = e.target && e.target.closest ? e.target.closest(".group-attr-input") : null;
+            if (!input) return;
+            const well = input.dataset.well;
+            if (!well || !activeAttributeName) return;
+            const row = input.closest("tr");
+            const groupCell = row ? row.querySelector(".group-cell") : null;
+            const groupName = groupCell ? (groupCell.textContent || "").trim() : "";
+            if (!groupName || groupName === "-") {
+                input.value = "";
+                return;
+            }
+            const parsed = Number(String(input.value || "").replace(",", "."));
+            if (!Number.isFinite(parsed)) {
+                input.value = "";
+                return;
+            }
+            if (!groupAttributes[groupName] || typeof groupAttributes[groupName] !== "object") {
+                groupAttributes[groupName] = {};
+            }
+            groupAttributes[groupName][activeAttributeName] = parsed;
+            // Group-level attribute: mirror to all wells in same group.
+            updateAttributeCells();
+            syncGroupsInput();
+            scheduleGroupPersist();
+        });
+
         if (resultsTbody) {
             resultsTbody.addEventListener("click", function (e) {
                 const toggleBtn = e.target.closest(".group-show-all-inline-btn");
@@ -496,11 +707,26 @@
                     renderPreview();
                 }
             });
+            resultsTbody.addEventListener("dblclick", function (e) {
+                const nameEl = e.target.closest(".group-name-editable");
+                if (!nameEl) return;
+                const oldName = (nameEl.dataset.groupName || nameEl.textContent || "").trim();
+                if (!oldName) return;
+                const value = window.prompt("Rename group:", oldName);
+                if (value === null) return;
+                const ok = renameGroup(oldName, value);
+                if (ok) {
+                    renderPreview();
+                }
+            });
         }
 
         if (groupPreview) {
             renderPreview();
         }
+        updateAttributeColumnHeader();
+        updateAttributeCells();
+        updateAxisAttributeControls();
         if (showAggCurvesToggle) {
             showAggCurvesToggle.addEventListener("change", toggleAggregationCurveColumn);
             toggleAggregationCurveColumn();

@@ -27,7 +27,7 @@
             <div style="position:absolute; z-index:15; top:120%; left:0; min-width:120px; max-height:240px; overflow-y:auto; background:#fff; border:1px solid #d1d5db; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.14); padding:6px;">
                 {% for well_idx, well_name in well_options %}
                 <div>
-                    <a href="{{ url_for('control_sigmoid_view', sigmoid_id=sigmoid_id, idx=well_idx) }}" style="display:block; padding:6px 8px; border-radius:6px; text-decoration:none; color:#111827; {% if well_idx == idx %}background:#e5e7eb; font-weight:700;{% endif %}">
+                    <a href="{{ url_for('sigmoid_bp.control_sigmoid_view', sigmoid_id=sigmoid_id, idx=well_idx) }}" style="display:block; padding:6px 8px; border-radius:6px; text-decoration:none; color:#111827; {% if well_idx == idx %}background:#e5e7eb; font-weight:700;{% endif %}">
                         {{ well_name }}
                     </a>
                 </div>
@@ -36,11 +36,11 @@
         </details>
     </p>
 
-    <p><a href="{{ url_for('plot_download', plot_id=image_id) }}">Download plot</a></p>
+    <p><a href="{{ url_for('plots_bp.plot_download', plot_id=image_id) }}">Download plot</a></p>
 
     <div class="plot-nav-layout">
         {% if has_prev %}
-        <a class="nav-arrow nav-left" href="{{ url_for('control_sigmoid_view', sigmoid_id=sigmoid_id, idx=prev_idx) }}" aria-label="Previous well">&#8592;</a>
+        <a class="nav-arrow nav-left" href="{{ url_for('sigmoid_bp.control_sigmoid_view', sigmoid_id=sigmoid_id, idx=prev_idx) }}" aria-label="Previous well">&#8592;</a>
         {% else %}
         <span class="nav-arrow nav-left nav-disabled" aria-hidden="true">&#8592;</span>
         {% endif %}
@@ -52,13 +52,13 @@
         </div>
 
         {% if has_next %}
-        <a class="nav-arrow nav-right" href="{{ url_for('control_sigmoid_view', sigmoid_id=sigmoid_id, idx=next_idx) }}" aria-label="Next well">&#8594;</a>
+        <a class="nav-arrow nav-right" href="{{ url_for('sigmoid_bp.control_sigmoid_view', sigmoid_id=sigmoid_id, idx=next_idx) }}" aria-label="Next well">&#8594;</a>
         {% else %}
         <span class="nav-arrow nav-right nav-disabled" aria-hidden="true">&#8594;</span>
         {% endif %}
     </div>
 
-    <form action="{{ url_for('control_sigmoid_update', sigmoid_id=sigmoid_id) }}" method="post" style="max-width:960px; margin-top:10px;">
+    <form action="{{ url_for('sigmoid_bp.control_sigmoid_update', sigmoid_id=sigmoid_id) }}" method="post" style="max-width:960px; margin-top:10px;">
         <input type="hidden" name="idx" value="{{ idx }}">
         <input type="hidden" id="submitted-baseline-x-input" name="submitted_baseline_x" value="{% if submitted_baseline_x is not none %}{{ submitted_baseline_x }}{% endif %}">
         <input type="hidden" id="submitted-plateau-x-input" name="submitted_plateau_x" value="{% if submitted_plateau_x is not none %}{{ submitted_plateau_x }}{% endif %}">
@@ -101,6 +101,9 @@
                         <button type="submit" name="action" value="mark_good_plateau_prediction" style="background:#f59e0b;">Great plateau point prediction</button>
                     </div>
                 </div>
+            </div>
+            <div style="margin-top:10px;">
+                <button type="submit" name="action" value="undo_latest_submit" style="background:#475569;">Undo latest submit</button>
             </div>
         </div>
         <p style="margin:8px 2px 10px 2px; font-size:0.86rem; color:#64748b;">
@@ -269,7 +272,7 @@
             if (submittedBaselineX !== null) params.set("baseline_x", String(submittedBaselineX));
             if (submittedPlateauX !== null) params.set("plateau_x", String(submittedPlateauX));
             params.set("_ts", String(Date.now()));
-            imgEl.src = "{{ url_for('control_sigmoid_preview', sigmoid_id=sigmoid_id) }}?" + params.toString();
+            imgEl.src = "{{ url_for('sigmoid_bp.control_sigmoid_preview', sigmoid_id=sigmoid_id) }}?" + params.toString();
         }
 
         editBaselineBtn.addEventListener("click", function () {

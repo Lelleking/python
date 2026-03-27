@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>Plate overview</title>
+    <style>
+        .plate-outer {
+            overflow-x: auto;
+            margin: 12px 0 16px 0;
+        }
+        .plate-grid-table {
+            border-collapse: collapse;
+        }
+        .plate-header-cell {
+            text-align: center;
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: #64748b;
+            padding: 2px 4px 4px 4px;
+            min-width: 82px;
+        }
+        .plate-row-label {
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: #64748b;
+            padding: 2px 8px 2px 2px;
+            vertical-align: middle;
+            text-align: center;
+        }
+        .plate-cell {
+            width: 82px;
+            height: 64px;
+            border: 1px solid #e2e8f0;
+            cursor: pointer;
+            position: relative;
+            background: #fff;
+            vertical-align: top;
+            padding: 0;
+            transition: border-color 0.1s;
+        }
+        .plate-cell:hover {
+            border-color: #93c5fd;
+        }
+        .plate-cell.selected {
+            border: 2px solid #2563eb;
+            box-shadow: inset 0 0 0 1px #2563eb;
+        }
+        .plate-cell.no-data {
+            background: #f8fafc;
+            cursor: default;
+        }
+        .plate-cell.no-data:hover {
+            border-color: #e2e8f0;
+        }
+        .plate-cell.invalid-agg .cell-label {
+            color: #9ca3af;
+        }
+        .cell-inner {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 100%;
+            padding: 2px 3px 1px 3px;
+            box-sizing: border-box;
+        }
+        .cell-label {
+            font-size: 0.62rem;
+            font-weight: 600;
+            color: #374151;
+            line-height: 1.2;
+            flex: 0 0 auto;
+        }
+        .cell-halftime {
+            font-size: 0.58rem;
+            color: #6b7280;
+            line-height: 1;
+            flex: 0 0 auto;
+        }
+        .cell-svg-wrap {
+            flex: 1 1 0;
+            width: 100%;
+            min-height: 0;
+        }
+        .cell-svg-wrap svg {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .group-controls {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .group-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 10px;
+            min-height: 24px;
+        }
+        .group-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 8px 3px 6px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            border: 1px solid #e2e8f0;
+            background: #f8fafc;
+        }
+        .group-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            flex: 0 0 10px;
+        }
+        .group-trash {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0 0 0 4px;
+            font-size: 0.8rem;
+            color: #9ca3af;
+            line-height: 1;
+        }
+        .action-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        .info-bar {
+            font-size: 0.85rem;
+            color: #4b5563;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Plate overview</h1>
+    <p class="info-bar">
+        Files merged: {{ n_files }} &nbsp;|&nbsp;
+        Chromatic: {{ chromatic }} &nbsp;|&nbsp;
+        Time unit: {{ time_unit_suffix }}
+    </p>
+
+    <!-- Group controls -->
+    <div class="group-controls">
+        <input type="text" id="group-name-input" placeholder="group name" style="width:140px;">
+        <button type="button" id="assign-btn" style="background:#1d4ed8;">Assign selected wells</button>
+        <button type="button" id="clear-selection-btn" style="background:#64748b;">Clear selection</button>
+        <button type="button" id="clear-groups-btn" style="background:#dc2626;">Clear all groups</button>
+    </div>
+
+    <!-- Group legend -->
+    <div id="group-legend" class="group-legend"></div>
+
+    <!-- Action buttons -->
+    <div class="action-bar">
+        <button type="button" id="btn-plot-agg" style="background:#0891b2;">Plot aggregation curves</button>
+        <button type="button" id="btn-thalf-log" style="background:#2563eb;">Plot t½ vs log(conc)</button>
+        <button type="button" id="btn-thalf-linear" style="background:#3b82f6;">Plot t½ vs conc</button>
+        <button type="button" id="btn-control-halftimes" style="background:#0f766e;">Control halftimes</button>
+        <button type="button" id="btn-gvc" style="background:#7c3aed;">Plot groups vs control</button>
+    </div>
+
+    <!-- Plate grid -->
+    <div class="plate-outer">
+        <table class="plate-grid-table">
+            <thead>
+                <tr>
+                    <th class="plate-header-cell"></th>
+                    {% for col in range(1, 13) %}
+                    <th class="plate-header-cell">{{ '%02d'|format(col) }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row_letter in ['A','B','C','D','E','F','G','H'] %}
+                <tr>
+                    <td class="plate-row-label">{{ row_letter }}</td>
+                    {% for col in range(1, 13) %}
+                    {% set well = row_letter + '%02d'|format(col) %}
+                    <td class="plate-cell {% if well not in all_wells %}no-data{% endif %} {% if well in invalid_wells %}invalid-agg{% endif %}"
+                        data-well="{{ well }}">
+                        <div class="cell-inner">
+                            <div class="cell-label">{{ well }}</div>
+                            {% if well in all_wells %}
+                            {% if well_halftime.get(well) is not none %}
+                            <div class="cell-halftime">{{ well_halftime[well] }} {{ time_unit_suffix }}</div>
+                            {% endif %}
+                            <div class="cell-svg-wrap">
+                                <svg data-well="{{ well }}" viewBox="0 0 76 44" preserveAspectRatio="none"></svg>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <p><a href="/">Back to home</a></p>
+
+    <script>
+        const curveData       = {{ curve_previews | tojson }};
+        const plateSessionId  = {{ plate_session_id | tojson }};
+        const thalfSessionId  = {{ thalf_session_id | tojson }};
+        const allWells        = {{ all_wells | tojson }};
+        const invalidWells    = new Set({{ invalid_wells | tojson }});
+
+        const groupPalette = [
+            "#3B82F6","#F59E0B","#10B981","#EF4444","#8B5CF6",
+            "#06B6D4","#84CC16","#F97316","#EC4899","#6366F1"
+        ];
+
+        let selectedWells = new Set();
+        let groups = {{ groups | tojson }};
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        function hexToRgba(hex, alpha) {
+            const c = hex.replace("#","");
+            const n = parseInt(c, 16);
+            return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${alpha})`;
+        }
+
+        function getGroupColorMap() {
+            const map = {};
+            Object.keys(groups).sort().forEach((name, i) => {
+                map[name] = groupPalette[i % groupPalette.length];
+            });
+            return map;
+        }
+
+        function wellToGroupMap() {
+            const m = {};
+            Object.entries(groups).forEach(([g, ws]) => ws.forEach(w => { m[w] = g; }));
+            return m;
+        }
+
+        // ── Render mini SVG curves ────────────────────────────────────────────
+
+        function renderCurves() {
+            document.querySelectorAll(".cell-svg-wrap svg[data-well]").forEach(svg => {
+                const well = svg.dataset.well;
+                const d = curveData[well];
+                if (!d || !Array.isArray(d.x) || d.x.length < 2) { svg.innerHTML = ""; return; }
+                const x = d.x, y = d.y, n = Math.min(x.length, y.length);
+                const minX = Math.min(...x), maxX = Math.max(...x);
+                const minY = Math.min(...y), maxY = Math.max(...y);
+                const W = 76, H = 44, pL = 2, pR = 2, pT = 2, pB = 4;
+                const iW = W - pL - pR, iH = H - pT - pB;
+                const xD = (maxX - minX) || 1, yD = (maxY - minY) || 1;
+                const sx = v => pL + ((v - minX) / xD) * iW;
+                const sy = v => pT + iH - ((v - minY) / yD) * iH;
+                let path = "";
+                for (let i = 0; i < n; i++) {
+                    path += (i === 0 ? `M ${sx(x[i])} ${sy(y[i])}` : ` L ${sx(x[i])} ${sy(y[i])}`);
+                }
+                let dot = "";
+                if (d.t_half !== null && d.t_half_y !== null) {
+                    dot = `<circle cx="${sx(d.t_half)}" cy="${sy(d.t_half_y)}" r="2.5" fill="#ef4444" stroke="#fff" stroke-width="1"/>`;
+                }
+                svg.innerHTML = `<path d="${path}" fill="none" stroke="#3b82f6" stroke-width="1.3" stroke-linecap="round"/>${dot}`;
+            });
+        }
+
+        // ── Update cell visual state (selection + group color) ────────────────
+
+        function updateCells() {
+            const colorMap = getGroupColorMap();
+            const w2g = wellToGroupMap();
+            document.querySelectorAll(".plate-cell[data-well]").forEach(cell => {
+                const well = cell.dataset.well;
+                const groupName = w2g[well];
+                const isSelected = selectedWells.has(well);
+
+                // Group background tint
+                if (groupName && colorMap[groupName]) {
+                    cell.style.backgroundColor = hexToRgba(colorMap[groupName], 0.15);
+                    cell.style.boxShadow = `inset 0 0 0 2px ${hexToRgba(colorMap[groupName], 0.55)}`;
+                } else {
+                    cell.style.backgroundColor = "";
+                    cell.style.boxShadow = "";
+                }
+
+                // Selection border
+                if (isSelected) {
+                    cell.classList.add("selected");
+                } else {
+                    cell.classList.remove("selected");
+                }
+            });
+        }
+
+        // ── Render group legend ───────────────────────────────────────────────
+
+        function renderLegend() {
+            const colorMap = getGroupColorMap();
+            const legend = document.getElementById("group-legend");
+            if (!Object.keys(groups).length) {
+                legend.innerHTML = '<span style="font-size:0.8rem;color:#9ca3af;">No groups defined.</span>';
+                return;
+            }
+            legend.innerHTML = Object.keys(groups).sort().map(name => {
+                const color = colorMap[name];
+                const wells = (groups[name] || []).join(", ");
+                return `<div class="group-badge">
+                    <span class="group-dot" style="background:${color};"></span>
+                    <strong>${name}</strong>: ${wells}
+                    <button class="group-trash" data-group="${name}" title="Delete group">✕</button>
+                </div>`;
+            }).join("");
+
+            legend.querySelectorAll(".group-trash").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    const g = btn.dataset.group;
+                    delete groups[g];
+                    updateAll();
+                });
+            });
+        }
+
+        function updateAll() {
+            updateCells();
+            renderLegend();
+        }
+
+        // ── Cell click: toggle selection ─────────────────────────────────────
+
+        document.querySelectorAll(".plate-cell[data-well]").forEach(cell => {
+            if (cell.classList.contains("no-data")) return;
+            cell.addEventListener("click", () => {
+                const well = cell.dataset.well;
+                if (selectedWells.has(well)) {
+                    selectedWells.delete(well);
+                } else {
+                    selectedWells.add(well);
+                }
+                updateCells();
+            });
+        });
+
+        // ── Group assignment ──────────────────────────────────────────────────
+
+        document.getElementById("assign-btn").addEventListener("click", () => {
+            const name = (document.getElementById("group-name-input").value || "").trim();
+            if (!name || selectedWells.size === 0) return;
+
+            // Remove selected wells from existing groups
+            Object.keys(groups).forEach(g => {
+                groups[g] = groups[g].filter(w => !selectedWells.has(w));
+                if (groups[g].length === 0) delete groups[g];
+            });
+
+            if (!groups[name]) groups[name] = [];
+            groups[name] = [...new Set([...groups[name], ...selectedWells])].sort();
+            selectedWells.clear();
+            updateAll();
+        });
+
+        document.getElementById("clear-selection-btn").addEventListener("click", () => {
+            selectedWells.clear();
+            updateCells();
+        });
+
+        document.getElementById("clear-groups-btn").addEventListener("click", () => {
+            groups = {};
+            updateAll();
+        });
+
+        // ── Form submission helpers ───────────────────────────────────────────
+
+        function addHidden(form, name, value) {
+            const inp = document.createElement("input");
+            inp.type = "hidden"; inp.name = name; inp.value = value;
+            form.appendChild(inp);
+        }
+
+        function groupedWells() {
+            const ws = new Set();
+            Object.values(groups).forEach(arr => arr.forEach(w => ws.add(w)));
+            return ws;
+        }
+
+        function wellsForPlot() {
+            // Use selected wells; fall back to all grouped wells; then all wells.
+            if (selectedWells.size > 0) return [...selectedWells].sort();
+            const gw = [...groupedWells()];
+            if (gw.length > 0) return gw.sort();
+            return [...allWells].sort();
+        }
+
+        // Plot aggregation curves
+        document.getElementById("btn-plot-agg").addEventListener("click", () => {
+            const wells = wellsForPlot();
+            const form = document.createElement("form");
+            form.method = "post"; form.action = "/plot/render";
+            addHidden(form, "dataset_id", plateSessionId);
+            wells.forEach(w => addHidden(form, "wells", w));
+            addHidden(form, "groups_json", JSON.stringify(groups));
+            document.body.appendChild(form);
+            // Sync groups to dataset before submitting
+            fetch("/groups/save_from_index", {
+                method: "POST",
+                headers: {"Content-Type": "application/x-www-form-urlencoded"},
+                body: `upload_set_id=&groups_json=${encodeURIComponent(JSON.stringify(groups))}`,
+            }).catch(() => {}).finally(() => {
+                form.submit();
+            });
+        });
+
+        // t½ actions (share same logic, only scale differs)
+        function submitTHalf(scale) {
+            const form = document.createElement("form");
+            form.method = "post"; form.action = `/plot/thalf?scale=${scale}`;
+            addHidden(form, "thalf_session_id", thalfSessionId);
+            addHidden(form, "thalf_groups_json", JSON.stringify(groups));
+            addHidden(form, "thalf_group_attributes_json", "{}");
+            addHidden(form, "thalf_active_attribute_name", "");
+            document.body.appendChild(form);
+            form.submit();
+            document.body.removeChild(form);
+        }
+
+        document.getElementById("btn-thalf-log").addEventListener("click", () => submitTHalf("log"));
+        document.getElementById("btn-thalf-linear").addEventListener("click", () => submitTHalf("linear"));
+
+        // Control halftimes
+        document.getElementById("btn-control-halftimes").addEventListener("click", () => {
+            const form = document.createElement("form");
+            form.method = "post"; form.action = "/control_halftimes/start";
+            addHidden(form, "thalf_session_id", thalfSessionId);
+            addHidden(form, "thalf_groups_json", JSON.stringify(groups));
+            document.body.appendChild(form);
+            form.submit();
+            document.body.removeChild(form);
+        });
+
+        // Plot groups vs control
+        document.getElementById("btn-gvc").addEventListener("click", () => {
+            if (Object.keys(groups).length === 0) {
+                alert("Assign wells to groups first before plotting groups vs control.");
+                return;
+            }
+            // Save groups to the plate dataset, then navigate to group_vs_control_start
+            const body = new URLSearchParams();
+            body.set("plate_session_id", plateSessionId);
+            body.set("groups_json", JSON.stringify(groups));
+
+            // We need to POST to /plot/group_vs_control/start with the dataset_id.
+            // First update the dataset groups via AJAX, then submit the form.
+            fetch("/plate_overview/update_groups", {
+                method: "POST",
+                headers: {"Content-Type": "application/x-www-form-urlencoded"},
+                body: `plate_session_id=${encodeURIComponent(plateSessionId)}&groups_json=${encodeURIComponent(JSON.stringify(groups))}`,
+            }).catch(() => {}).finally(() => {
+                const form = document.createElement("form");
+                form.method = "post"; form.action = "/plot/group_vs_control/start";
+                addHidden(form, "plate_session_id", plateSessionId);
+                document.body.appendChild(form);
+                form.submit();
+                document.body.removeChild(form);
+            });
+        });
+
+        // ── Init ─────────────────────────────────────────────────────────────
+        renderCurves();
+        updateAll();
+    </script>
+</body>
+</html>

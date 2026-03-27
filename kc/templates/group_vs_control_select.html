@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>Plot groups vs control</title>
+</head>
+<body>
+    <h1>Plot groups individually against control samples</h1>
+    <p>Files merged: {{ n_files }} &nbsp;|&nbsp; Chromatic: {{ chromatic }} &nbsp;|&nbsp; Time unit: {{ time_unit_suffix }}</p>
+
+    <form action="{{ url_for('plots_bp.group_vs_control_render') }}" method="post">
+        <input type="hidden" name="dataset_id" value="{{ dataset_id }}">
+        <input type="hidden" id="group-order-input" name="group_order" value="">
+
+        {# ── Control wells ── #}
+        <details open style="margin-bottom:12px;">
+            <summary style="cursor:pointer; display:inline-block; border:1px solid #cbd5e1; border-radius:8px; padding:6px 10px; background:#f8fafc; font-weight:600;">
+                1. Select control wells
+            </summary>
+            <p style="font-size:0.85rem; color:#6b7280; margin:6px 0 4px;">Wells shown in <span style="color:#5b21b6; font-weight:600;">purple</span> already belong to a group.</p>
+            <div class="well-grid">
+                {% set grouped_wells = [] %}
+                {% for gname, gwells in groups.items() %}
+                    {% for w in gwells %}{% if grouped_wells.append(w) %}{% endif %}{% endfor %}
+                {% endfor %}
+                {% for well in all_wells %}
+                <label class="well-label {% if well in grouped_wells %}in-group{% endif %}">
+                    <input type="checkbox" name="control_well" value="{{ well }}"> {{ well }}
+                </label>
+                {% endfor %}
+            </div>
+        </details>
+
+        {# ── Groups ── #}
+        <details open style="margin-bottom:12px;">
+            <summary style="cursor:pointer; display:inline-block; border:1px solid #cbd5e1; border-radius:8px; padding:6px 10px; background:#f8fafc; font-weight:600;">
+                2. Select &amp; order groups
+            </summary>
+            <p style="font-size:0.85rem; color:#6b7280; margin:6px 0 8px;">Use the arrows to set the order. Uncheck to exclude a group.</p>
+            <div id="group-list">
+                {% for gname, gwells in groups.items() %}
+                <div class="group-row" data-group="{{ gname }}">
+                    <input type="checkbox" class="group-include-cb" checked>
+                    <strong style="min-width:120px;">{{ gname }}</strong>
+                    <span style="font-size:0.8rem; color:#6b7280;">{{ gwells | join(', ') }}</span>
+                    <button type="button" class="move-btn" data-dir="up">▲</button>
+                    <button type="button" class="move-btn" data-dir="down">▼</button>
+                </div>
+                {% endfor %}
+            </div>
+        </details>
+
+        {# ── Normalization ── #}
+        <details open style="margin-bottom:12px;">
+            <summary style="cursor:pointer; display:inline-block; border:1px solid #cbd5e1; border-radius:8px; padding:6px 10px; background:#f8fafc; font-weight:600;">
+                3. Normalization
+            </summary>
+            <div style="display:flex; gap:16px; margin-top:8px; font-size:0.9rem;">
+                <label style="display:inline-flex; align-items:center; gap:6px;">
+                    <input type="radio" name="norm_setting" value="raw" checked> Raw (fluorescence a.u.)
+                </label>
+                <label style="display:inline-flex; align-items:center; gap:6px;">
+                    <input type="radio" name="norm_setting" value="normalized"> Normalized (0–1)
+                </label>
+                <label style="display:inline-flex; align-items:center; gap:6px;">
+                    <input type="radio" name="norm_setting" value="both"> Both
+                </label>
+            </div>
+        </details>
+
+        {# ── Custom titles ── #}
+        <details style="margin-bottom:12px;">
+            <summary style="cursor:pointer; display:inline-block; border:1px solid #cbd5e1; border-radius:8px; padding:6px 10px; background:#f8fafc;">
+                Change plot / axis titles (optional)
+            </summary>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+                <input type="text" name="custom_x_label" placeholder="x-axis title">
+                <input type="text" name="custom_y_label" placeholder="y-axis title">
+                <input type="text" name="custom_plot_title" placeholder="plot headline">
+            </div>
+        </details>
+
+        <button type="submit" style="background:#7c3aed; margin-top:4px;">Generate plots</button>
+    </form>
+
+    <p style="margin-top:16px;"><a href="/">Back</a></p>
+
+    <script>
+        const groupOrderInput = document.getElementById("group-order-input");
+        const groupList = document.getElementById("group-list");
+
+        function updateGroupOrder() {
+            const rows = Array.from(groupList.querySelectorAll(".group-row"));
+            const order = rows
+                .filter(r => r.querySelector(".group-include-cb").checked)
+                .map(r => r.dataset.group);
+            groupOrderInput.value = JSON.stringify(order);
+        }
+
+        groupList.addEventListener("click", function(e) {
+            const btn = e.target.closest(".move-btn");
+            if (!btn) return;
+            const row = btn.closest(".group-row");
+            const dir = btn.dataset.dir;
+            if (dir === "up" && row.previousElementSibling) {
+                groupList.insertBefore(row, row.previousElementSibling);
+            } else if (dir === "down" && row.nextElementSibling) {
+                groupList.insertBefore(row.nextElementSibling, row);
+            }
+            updateGroupOrder();
+        });
+
+        groupList.addEventListener("change", updateGroupOrder);
+
+        // Initialise
+        updateGroupOrder();
+    </script>
+</body>
+</html>

@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>Representative Curve Control</title>
+</head>
+<body>
+    {% if train_metrics %}
+    <div class="metrics-box">
+        <div><strong>Current accuracy:</strong></div>
+        <div>Aggregation or not: {{ train_metrics.aggregation_pct }}%</div>
+        <div>Half-time: +-{{ train_metrics.halftime_err_pct }}% or +-{{ train_metrics.halftime_err_hours }} h</div>
+    </div>
+    {% endif %}
+
+    <h1>Control representative curve/s</h1>
+    <p>Files merged: {{ n_files }}</p>
+    <p>Selected chromatic: {{ chromatic }}</p>
+    <p>Time unit: {{ time_unit_suffix }}</p>
+    <p>Group {{ idx + 1 }} / {{ total_groups }}: <strong>{{ group_name }}</strong></p>
+    <p>Wells: {{ group_wells|join(", ") }}</p>
+    <p><strong>Primary representative:</strong> {{ primary_representative if primary_representative else "None" }}</p>
+    {% if diverse_representatives and diverse_representatives|length > 0 %}
+    <p><strong>Diverse representatives:</strong> {{ diverse_representatives|join(", ") }}</p>
+    {% endif %}
+    <p><a href="{{ url_for('plots_bp.plot_download', plot_id=image_id) }}">Download plot</a></p>
+
+    <div class="plot-nav-layout">
+        {% if has_prev %}
+        <a class="nav-arrow nav-left" href="{{ url_for('smart_summary.representative_control_view', upload_set_id=upload_set_id, extract_source_kind=extract_source_kind, extract_group_mode=extract_group_mode, extract_folder=extract_folder, extract_groups=extract_groups, extract_curves_count=extract_curves_count, diverse_representation=(1 if diverse_representation else 0), idx=prev_idx) }}" aria-label="Previous group">&#8592;</a>
+        {% else %}
+        <span class="nav-arrow nav-left nav-disabled" aria-hidden="true">&#8592;</span>
+        {% endif %}
+
+        <div id="rep-plot-wrap" style="position:relative; display:inline-block; width:100%; max-width:980px; border:1px solid #ccc; border-radius:10px; background:#fff; overflow:hidden;">
+            <img id="rep-plot-image" src="{{ image_url }}" alt="Representative control plot" style="width:100%; display:block; background:#fff;">
+        </div>
+
+        {% if has_next %}
+        <a class="nav-arrow nav-right" href="{{ url_for('smart_summary.representative_control_view', upload_set_id=upload_set_id, extract_source_kind=extract_source_kind, extract_group_mode=extract_group_mode, extract_folder=extract_folder, extract_groups=extract_groups, extract_curves_count=extract_curves_count, diverse_representation=(1 if diverse_representation else 0), idx=next_idx) }}" aria-label="Next group">&#8594;</a>
+        {% else %}
+        <span class="nav-arrow nav-right nav-disabled" aria-hidden="true">&#8594;</span>
+        {% endif %}
+    </div>
+
+    <form action="{{ url_for('smart_summary.representative_control_feedback') }}" method="post" style="margin-top:10px; max-width:980px;">
+        <input type="hidden" name="upload_set_id" value="{{ upload_set_id }}">
+        <input type="hidden" name="group_name" value="{{ group_name }}">
+        <input type="hidden" name="idx" value="{{ idx }}">
+        <input type="hidden" name="extract_source_kind" value="{{ extract_source_kind }}">
+        <input type="hidden" name="extract_group_mode" value="{{ extract_group_mode }}">
+        <input type="hidden" name="extract_folder" value="{{ extract_folder }}">
+        <input type="hidden" name="extract_curves_count" value="{{ extract_curves_count }}">
+        <input type="hidden" name="diverse_representation" value="{{ 1 if diverse_representation else 0 }}">
+        {% for g in extract_groups %}
+        <input type="hidden" name="extract_groups" value="{{ g }}">
+        {% endfor %}
+        {% for w in model_representatives %}
+        <input type="hidden" name="model_representatives" value="{{ w }}">
+        {% endfor %}
+        <input type="hidden" name="primary_representative" value="{{ primary_representative if primary_representative else '' }}">
+        {% for w in diverse_representatives %}
+        <input type="hidden" name="diverse_representatives" value="{{ w }}">
+        {% endfor %}
+        <input type="hidden" id="alternative-well-input" name="alternative_well" value="">
+
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <button type="submit" name="action" value="great_selection" style="background:#1d4ed8;">
+                Great selection
+            </button>
+            <button type="button" id="pick-alternative-btn" style="background:#334155;">
+                Click on better alternative
+            </button>
+            <button type="submit" id="submit-alternative-btn" name="action" value="submit_alternative" style="display:none; background:#0f766e;">
+                Submit selected alternative
+            </button>
+            {% if extract_curves_count > 1 %}
+            <button type="submit" id="submit-diverse-btn" name="action" value="submit_better_diverse" style="display:none; background:#7C3AED;">
+                Submit better diverse curve
+            </button>
+            {% endif %}
+        </div>
+    </form>
+
+    <p id="pick-status" style="font-size:0.92rem; color:#475569; margin-top:8px;">
+        Blue = primary representative. Colored curves = diverse representatives. Gray = other curves.
+    </p>
+    {% if status_message %}
+    <p>{{ status_message }}</p>
+    {% endif %}
+
+    <p style="margin-top:12px;"><a href="{{ url_for('smart_summary.smart_summary', upload_set_id=upload_set_id) }}">Back to smart summary</a></p>
+
+    <script>
+        const plotMeta = {{ plot_meta | tojson }};
+        const payload = {{ plot_payload | tojson }};
+        const previewBaseUrl = {{ url_for('smart_summary.representative_control_preview') | tojson }};
+        const previewParamsBase = {
+            upload_set_id: {{ upload_set_id|tojson }},
+            extract_source_kind: {{ extract_source_kind|tojson }},
+            extract_group_mode: {{ extract_group_mode|tojson }},
+            extract_folder: {{ extract_folder|tojson }},
+            extract_curves_count: {{ extract_curves_count|tojson }},
+            diverse_representation: {{ 1 if diverse_representation else 0 }},
+            idx: {{ idx|tojson }},
+            extract_groups: {{ extract_groups|tojson }},
+        };
+        const primaryRepresentative = payload.primary_representative || null;
+
+        const imgEl = document.getElementById("rep-plot-image");
+        const pickBtn = document.getElementById("pick-alternative-btn");
+        const submitBtn = document.getElementById("submit-alternative-btn");
+        const submitDiverseBtn = document.getElementById("submit-diverse-btn");
+        const altInput = document.getElementById("alternative-well-input");
+        const statusEl = document.getElementById("pick-status");
+
+        let pickMode = false;
+        let selectedAlternativeWell = null;
+
+        function bounds() {
+            const w = imgEl.clientWidth;
+            const h = imgEl.clientHeight;
+            return {
+                x0: w * plotMeta.ax_left,
+                x1: w * plotMeta.ax_right,
+                y0: h * (1 - plotMeta.ax_top),
+                y1: h * (1 - plotMeta.ax_bottom),
+            };
+        }
+
+        function dataToPx(x, y) {
+            const b = bounds();
+            const tx = (x - plotMeta.x_min) / Math.max(1e-9, (plotMeta.x_max - plotMeta.x_min));
+            const ty = (y - plotMeta.y_min) / Math.max(1e-9, (plotMeta.y_max - plotMeta.y_min));
+            return {
+                px: b.x0 + Math.max(0, Math.min(1, tx)) * (b.x1 - b.x0),
+                py: b.y1 - Math.max(0, Math.min(1, ty)) * (b.y1 - b.y0),
+            };
+        }
+
+        function pxToData(clientX, clientY) {
+            const rect = imgEl.getBoundingClientRect();
+            const localX = clientX - rect.left;
+            const localY = clientY - rect.top;
+            const b = bounds();
+            const cx = Math.max(b.x0, Math.min(b.x1, localX));
+            const cy = Math.max(b.y0, Math.min(b.y1, localY));
+            const tx = (cx - b.x0) / Math.max(1e-9, (b.x1 - b.x0));
+            const ty = (b.y1 - cy) / Math.max(1e-9, (b.y1 - b.y0));
+            const x = plotMeta.x_min + tx * (plotMeta.x_max - plotMeta.x_min);
+            const y = plotMeta.y_min + ty * (plotMeta.y_max - plotMeta.y_min);
+            return {x, y};
+        }
+
+        function interpY(curve, x) {
+            const xs = curve.x || [];
+            const ys = curve.y || [];
+            if (!xs.length || xs.length !== ys.length) return null;
+            if (x <= xs[0]) return ys[0];
+            const last = xs.length - 1;
+            if (x >= xs[last]) return ys[last];
+            for (let i = 0; i < last; i++) {
+                const x1 = xs[i], x2 = xs[i + 1];
+                if (x >= x1 && x <= x2) {
+                    if (x2 === x1) return ys[i];
+                    const t = (x - x1) / (x2 - x1);
+                    return ys[i] + t * (ys[i + 1] - ys[i]);
+                }
+            }
+            return ys[last];
+        }
+
+        function nearestCurve(x, y) {
+            const curves = payload.curves || [];
+            let best = null;
+            let bestScore = Infinity;
+            curves.forEach((c) => {
+                const yy = interpY(c, x);
+                if (yy === null || !Number.isFinite(yy)) return;
+                const score = Math.abs(yy - y);
+                if (score < bestScore) {
+                    bestScore = score;
+                    best = c;
+                }
+            });
+            return best;
+        }
+
+        function refreshPreviewImage() {
+            const params = new URLSearchParams();
+            params.set("upload_set_id", previewParamsBase.upload_set_id || "");
+            params.set("extract_source_kind", previewParamsBase.extract_source_kind || "file");
+            params.set("extract_group_mode", previewParamsBase.extract_group_mode || "all");
+            params.set("extract_folder", previewParamsBase.extract_folder || "");
+            params.set("extract_curves_count", String(previewParamsBase.extract_curves_count || 1));
+            params.set("diverse_representation", String(previewParamsBase.diverse_representation || 0));
+            params.set("idx", String(previewParamsBase.idx || 0));
+            (previewParamsBase.extract_groups || []).forEach((g) => params.append("extract_groups", g));
+            if (selectedAlternativeWell) {
+                params.set("alternative_well", selectedAlternativeWell);
+            }
+            params.set("_ts", String(Date.now()));
+            imgEl.src = `${previewBaseUrl}?${params.toString()}`;
+        }
+
+        pickBtn.addEventListener("click", function () {
+            pickMode = !pickMode;
+            if (pickMode) {
+                pickBtn.textContent = "Picking mode: ON";
+                pickBtn.style.background = "#7C2D12";
+                statusEl.textContent = "Click a curve to mark it as better alternative (orange).";
+                imgEl.style.cursor = "crosshair";
+            } else {
+                pickBtn.textContent = "Click on better alternative";
+                pickBtn.style.background = "#334155";
+                statusEl.textContent = "Blue = model selected curve/s. Gray = other curves.";
+                imgEl.style.cursor = "default";
+            }
+        });
+
+        imgEl.addEventListener("click", function (evt) {
+            if (!pickMode) return;
+            const d = pxToData(evt.clientX, evt.clientY);
+            const c = nearestCurve(d.x, d.y);
+            if (!c) return;
+            selectedAlternativeWell = c.well;
+            altInput.value = selectedAlternativeWell;
+            submitBtn.style.display = "inline-block";
+            if (submitDiverseBtn) {
+                if (primaryRepresentative && selectedAlternativeWell === primaryRepresentative) {
+                    submitDiverseBtn.style.display = "none";
+                } else {
+                    submitDiverseBtn.style.display = "inline-block";
+                }
+            }
+            statusEl.textContent = `Better alternative selected: ${selectedAlternativeWell} (orange)`;
+            refreshPreviewImage();
+        });
+    </script>
+</body>
+</html>

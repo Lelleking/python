@@ -140,10 +140,86 @@
         .plot-head a {
             margin: 0;
         }
+        .plot-tools {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .dot-legend {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            color: #475569;
+            font-size: 13px;
+        }
+        .dot-legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .dot-swatch {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            border: 1px solid #ffffff;
+            box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.15);
+            display: inline-block;
+        }
         .side-panel {
             display: flex;
             flex-direction: column;
             gap: 10px;
+        }
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.45);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 60;
+        }
+        .modal-overlay.open {
+            display: flex;
+        }
+        .modal-card {
+            width: min(860px, 92vw);
+            max-height: 85vh;
+            overflow: auto;
+            background: #fff;
+            border-radius: 14px;
+            border: 1px solid #d1d5db;
+            padding: 16px;
+            box-shadow: 0 16px 36px rgba(15, 23, 42, 0.24);
+        }
+        .m0-grid {
+            margin-top: 10px;
+            display: grid;
+            grid-template-columns: minmax(160px, 1fr) minmax(140px, 220px);
+            gap: 8px 12px;
+            align-items: center;
+        }
+        .m0-top-controls {
+            margin-top: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+        .m0-actions {
+            margin-top: 12px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+        .m0-help {
+            margin-top: 8px;
+            color: #64748b;
+            font-size: 12px;
         }
         @media (max-width: 980px) {
             .controls-layout {
@@ -165,7 +241,12 @@
     <p>Files merged: {{ n_files }}</p>
     <p>Selected chromatic: {{ chromatic }}</p>
     <p>Time unit: {{ time_unit_suffix }}</p>
-    <form method="get" action="{{ url_for('aggregation_analysis_view', analysis_id=analysis_id) }}" class="agg-form">
+    <form id="agg-analysis-form" method="get" action="{{ url_for('aggregation.aggregation_analysis_view', analysis_id=analysis_id) }}" class="agg-form">
+        <input type="hidden" name="m0_scope" id="m0-scope-hidden" value="{{ m0_scope }}">
+        <input type="hidden" name="m0_values_json" id="m0-values-hidden" value='{{ m0_values_json|e }}'>
+        <input type="hidden" name="cut_state_json" id="cut-state-hidden" value='{{ cut_state_json|e }}'>
+        <input type="hidden" name="rebase_new_cuts" id="rebase-cuts-hidden" value="{{ 1 if rebase_new_cuts else 0 }}">
+        <input type="hidden" name="submit_restarts_ml" id="submit-restarts-ml-hidden" value="0">
         <div class="controls-layout">
             <div class="controls-main">
                 <div class="ctrl-row">
@@ -220,21 +301,10 @@
 
                 <div class="ctrl-row">
                     <label style="display:inline-flex; align-items:center; gap:4px;">
-                        <input type="checkbox" name="normalize_plot" value="1" {% if normalize_plot %}checked{% endif %}>
+                        <input type="checkbox" id="normalize-plot-cb" name="normalize_plot" value="1" {% if normalize_plot %}checked{% endif %}>
                         normalized curve
                     </label>
                 </div>
-
-                <details class="ctrl-row">
-                    <summary style="cursor:pointer; display:inline-block; border:1px solid #cbd5e1; border-radius:8px; padding:6px 10px; background:#f8fafc;">
-                        Change plot / axis titles
-                    </summary>
-                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
-                        <input type="text" name="custom_x_label" placeholder="x-axis title (optional)" value="{{ custom_titles.x if custom_titles else '' }}">
-                        <input type="text" name="custom_y_label" placeholder="y-axis title (optional)" value="{{ custom_titles.y if custom_titles else '' }}">
-                        <input type="text" name="custom_plot_title" placeholder="plot headline (optional)" value="{{ custom_titles.title if custom_titles else '' }}">
-                    </div>
-                </details>
 
                 {% if current_mode == 'groups' %}
                 <div class="rep-row">
@@ -275,19 +345,38 @@
             <div class="side-panel">
                 <aside class="global-box">
                     <div class="global-box-title">Global fitting</div>
+                    <button type="button" id="open-m0-modal">Enter m0 values</button>
                     <label class="global-field">
                         <span>Enable</span>
-                        <input type="checkbox" name="global_fit" value="1" {% if global_fit %}checked{% endif %}>
+                        <input type="checkbox" id="global-fit-cb" name="global_fit" value="1" {% if global_fit %}checked{% endif %}>
                     </label>
                     <label class="global-field">
                         <span>Show residuals</span>
                         <input type="checkbox" name="show_residuals" value="1" {% if show_residuals %}checked{% endif %}>
                     </label>
                     <label class="global-field">
-                        <span>Merge group curves</span>
-                        <input type="checkbox" name="merge_group_curves" value="1" {% if merge_group_curves %}checked{% endif %}>
+                        <span>Visualize Kinetic Phases</span>
+                        <input type="checkbox" id="visualize-kinetic-phases-cb" name="visualize_kinetic_phases" value="1" {% if visualize_kinetic_phases %}checked{% endif %}>
                     </label>
+                    <div id="phase-color-rows" style="{% if not visualize_kinetic_phases %}display:none;{% endif %} margin-top:-2px; padding:6px 8px; border:1px solid #e5e7eb; border-radius:8px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:13px;">
+                            <span>Primary Nucleation-Dominated Regime</span>
+                            <input type="color" name="phase_primary_color" value="{{ phase_primary_color }}">
+                        </div>
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; font-size:13px;">
+                            <span>Secondary Nucleation-Dominated Regime</span>
+                            <input type="color" name="phase_secondary_color" value="{{ phase_secondary_color }}">
+                        </div>
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; font-size:13px;">
+                            <span>Monomer Depletion Phase</span>
+                            <input type="color" name="phase_depletion_color" value="{{ phase_depletion_color }}">
+                        </div>
+                    </div>
                     <label class="global-field">
+                        <span>Merge group curves</span>
+                        <input type="checkbox" id="merge-group-curves-cb" name="merge_group_curves" value="1" {% if merge_group_curves %}checked{% endif %}>
+                    </label>
+                    <label class="global-field" id="merge-method-row" {% if not merge_group_curves %}style="display:none;"{% endif %}>
                         <span>Merge method</span>
                         <select name="merge_method" style="width:150px;">
                             <option value="standard" {% if merge_method == 'standard' %}selected{% endif %}>Standard Y-averaging</option>
@@ -296,8 +385,19 @@
                     </label>
                     <label class="global-field">
                         <span>Restarts</span>
-                        <input type="number" min="1" max="40" name="global_restarts" value="{{ global_restarts }}" style="width:84px;">
+                        <input type="number" min="1" max="50" name="global_restarts" value="{{ global_restarts }}" style="width:84px;">
                     </label>
+                    <div style="margin-top:-4px;">
+                        <button type="button" id="ml-submit-btn" style="padding:2px 8px; font-size:11px; line-height:1.2; min-height:auto;">
+                            ML Submit
+                        </button>
+                    </div>
+                    <div style="font-size:12px; color:#64748b;">
+                        Predicted restarts: {{ predicted_restarts }}
+                    </div>
+                    {% if restarts_submit_message %}
+                    <div style="font-size:12px; color:#0f766e;">{{ restarts_submit_message }}</div>
+                    {% endif %}
                     {% if global_fit %}
                     {% if global_fit_result and global_fit_result.success %}
                     <div style="margin-top:4px; padding-top:8px; border-top:1px solid #e5e7eb; font-size:13px; color:#1f2937;">
@@ -318,6 +418,34 @@
         </div>
     </form>
 
+    <div class="modal-overlay" id="m0-modal">
+        <div class="modal-card">
+            <h3 style="margin:0;">Enter m0 concentrations</h3>
+            <p class="m0-help">Choose whether to input m0 concentration group-wise or well-wise. Values must be positive numbers.</p>
+            <label style="display:inline-flex; align-items:center; gap:8px; margin-top:8px;">
+                Fill mode
+                <select id="m0-scope-select">
+                    <option value="group" {% if m0_scope == 'group' %}selected{% endif %}>Group-wise</option>
+                    <option value="well" {% if m0_scope == 'well' %}selected{% endif %}>Well-wise</option>
+                </select>
+            </label>
+            <div class="m0-top-controls">
+                <input type="text" id="m0-profile-name" placeholder="Standard profile name">
+                <button type="button" id="m0-save-profile">Save as standard</button>
+                <select id="m0-profile-select" style="min-width:170px;">
+                    <option value="">Select standard profile</option>
+                </select>
+                <button type="button" id="m0-apply-profile">Apply standard</button>
+                <button type="button" id="m0-autofill-names">Autofill from names</button>
+            </div>
+            <div class="m0-grid" id="m0-input-grid"></div>
+            <div class="m0-actions">
+                <button type="button" id="m0-cancel">Cancel</button>
+                <button type="button" id="m0-save">Save m0 values</button>
+            </div>
+        </div>
+    </div>
+
     <div class="plot-head">
         <h2 class="plot-title">{{ plot_header_title }}</h2>
         {% if plot_header_meta %}
@@ -326,18 +454,54 @@
         {% if group_wells %}
         <p class="plot-subtitle">{{ plot_header_label }}: {{ group_wells | join(", ") }}</p>
         {% endif %}
-        <a href="{{ url_for('plot_download', plot_id=image_id) }}">Download plot</a>
+        <div class="plot-tools">
+            <a href="{{ url_for('plots_bp.plot_download', plot_id=image_id) }}">Download plot</a>
+            <details>
+                <summary style="cursor:pointer; display:inline-block; border:1px solid #cbd5e1; border-radius:8px; padding:6px 10px; background:#f8fafc;">
+                    Change plot / axis titles
+                </summary>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+                    <input type="text" form="agg-analysis-form" name="custom_x_label" placeholder="x-axis title (optional)" value="{{ custom_titles.x if custom_titles else '' }}">
+                    <input type="text" form="agg-analysis-form" name="custom_y_label" placeholder="y-axis title (optional)" value="{{ custom_titles.y if custom_titles else '' }}">
+                    <input type="text" form="agg-analysis-form" name="custom_plot_title" placeholder="plot headline (optional)" value="{{ custom_titles.title if custom_titles else '' }}">
+                </div>
+            </details>
+        </div>
+        {% if show_halftime or show_baseline or show_plateau %}
+        <div class="dot-legend">
+            {% if show_halftime %}
+            <span class="dot-legend-item"><span class="dot-swatch" style="background:#DC2626;"></span>Half-time dot</span>
+            {% endif %}
+            {% if show_baseline %}
+            <span class="dot-legend-item"><span class="dot-swatch" style="background:#10B981;"></span>Baseline dot</span>
+            {% endif %}
+            {% if show_plateau %}
+            <span class="dot-legend-item"><span class="dot-swatch" style="background:#F59E0B;"></span>Plateau dot</span>
+            {% endif %}
+        </div>
+        {% endif %}
     </div>
 
     <div class="plot-nav-layout">
         {% if has_prev %}
-        <a class="nav-arrow nav-left" href="{{ url_for('aggregation_analysis_view', analysis_id=analysis_id, mode=current_mode, item=prev_item, show_halftime=(1 if show_halftime else 0), show_baseline=(1 if show_baseline else 0), show_plateau=(1 if show_plateau else 0), normalize_plot=(1 if normalize_plot else 0), global_fit=(1 if global_fit else 0), show_residuals=(1 if show_residuals else 0), merge_group_curves=(1 if merge_group_curves else 0), merge_method=merge_method, global_restarts=global_restarts, select_representative=(1 if select_representative else 0), rep_merge_only=(1 if rep_merge_only else 0), rep_count=rep_count, rep_groups=rep_groups_query, item_groups=item_groups_selected, custom_x_label=(custom_titles.x if custom_titles else ''), custom_y_label=(custom_titles.y if custom_titles else ''), custom_plot_title=(custom_titles.title if custom_titles else '')) }}" aria-label="Previous">&#8592;</a>
+        <a class="nav-arrow nav-left" href="{{ url_for('aggregation.aggregation_analysis_view', analysis_id=analysis_id, mode=current_mode, item=prev_item, show_halftime=(1 if show_halftime else 0), show_baseline=(1 if show_baseline else 0), show_plateau=(1 if show_plateau else 0), normalize_plot=(1 if normalize_plot else 0), global_fit=(1 if global_fit else 0), show_residuals=(1 if show_residuals else 0), visualize_kinetic_phases=(1 if visualize_kinetic_phases else 0), phase_primary_color=phase_primary_color, phase_secondary_color=phase_secondary_color, phase_depletion_color=phase_depletion_color, merge_group_curves=(1 if merge_group_curves else 0), merge_method=merge_method, global_restarts=global_restarts, select_representative=(1 if select_representative else 0), rep_merge_only=(1 if rep_merge_only else 0), rep_count=rep_count, rep_groups=rep_groups_query, item_groups=item_groups_selected, m0_scope=m0_scope, m0_values_json=m0_values_json, cut_state_json=cut_state_json, rebase_new_cuts=(1 if rebase_new_cuts else 0), custom_x_label=(custom_titles.x if custom_titles else ''), custom_y_label=(custom_titles.y if custom_titles else ''), custom_plot_title=(custom_titles.title if custom_titles else '')) }}" aria-label="Previous">&#8592;</a>
         {% else %}
         <span class="nav-arrow nav-left nav-disabled" aria-hidden="true">&#8592;</span>
         {% endif %}
 
         {% if current_mode == 'groups' %}
         <div id="agg-plot-wrapper" style="position:relative; flex:1; max-width:100%;">
+            <div style="position:absolute; top:8px; right:10px; z-index:12; display:flex; gap:6px;">
+                <button type="button" id="agg-zoom-out-btn" style="padding:4px 8px; font-size:12px; background:#334155;">Zoom out</button>
+                <button type="button" id="agg-zoom-reset-btn" style="padding:4px 8px; font-size:12px; background:#475569;">Reset zoom</button>
+            </div>
+            <div style="position:absolute; top:8px; left:10px; z-index:12; display:flex; gap:6px; align-items:center;">
+                <button type="button" id="agg-cut-mode-btn" style="padding:4px 8px; font-size:12px; background:#7c2d12;">✂ Cut off lag time</button>
+                <button type="button" id="agg-cut-smart-btn" style="padding:4px 8px; font-size:12px; background:#0f766e;">🤖 Smart cut</button>
+                <button type="button" id="agg-cut-undo-btn" style="padding:4px 8px; font-size:12px; background:#4b5563;">Undo</button>
+                <button type="button" id="agg-cut-rebase-btn" style="padding:4px 8px; font-size:12px; background:#64748b;">Alignment: OFF</button>
+                <button type="button" id="agg-cut-load-btn" style="padding:4px 8px; font-size:12px; background:#0f766e;">Load previous cut curves</button>
+            </div>
             <canvas id="agg-plot-canvas" style="width:100%; max-width:100%; border:1px solid #ccc; border-radius:10px; background:#fff;"></canvas>
             <div id="agg-plot-tooltip" style="position:absolute; pointer-events:none; background:#111827; color:#f9fafb; padding:4px 8px; border-radius:4px; font-size:12px; display:none; z-index:10;"></div>
         </div>
@@ -346,7 +510,7 @@
         {% endif %}
 
         {% if has_next %}
-        <a class="nav-arrow nav-right" href="{{ url_for('aggregation_analysis_view', analysis_id=analysis_id, mode=current_mode, item=next_item, show_halftime=(1 if show_halftime else 0), show_baseline=(1 if show_baseline else 0), show_plateau=(1 if show_plateau else 0), normalize_plot=(1 if normalize_plot else 0), global_fit=(1 if global_fit else 0), show_residuals=(1 if show_residuals else 0), merge_group_curves=(1 if merge_group_curves else 0), merge_method=merge_method, global_restarts=global_restarts, select_representative=(1 if select_representative else 0), rep_merge_only=(1 if rep_merge_only else 0), rep_count=rep_count, rep_groups=rep_groups_query, item_groups=item_groups_selected, custom_x_label=(custom_titles.x if custom_titles else ''), custom_y_label=(custom_titles.y if custom_titles else ''), custom_plot_title=(custom_titles.title if custom_titles else '')) }}" aria-label="Next">&#8594;</a>
+        <a class="nav-arrow nav-right" href="{{ url_for('aggregation.aggregation_analysis_view', analysis_id=analysis_id, mode=current_mode, item=next_item, show_halftime=(1 if show_halftime else 0), show_baseline=(1 if show_baseline else 0), show_plateau=(1 if show_plateau else 0), normalize_plot=(1 if normalize_plot else 0), global_fit=(1 if global_fit else 0), show_residuals=(1 if show_residuals else 0), visualize_kinetic_phases=(1 if visualize_kinetic_phases else 0), phase_primary_color=phase_primary_color, phase_secondary_color=phase_secondary_color, phase_depletion_color=phase_depletion_color, merge_group_curves=(1 if merge_group_curves else 0), merge_method=merge_method, global_restarts=global_restarts, select_representative=(1 if select_representative else 0), rep_merge_only=(1 if rep_merge_only else 0), rep_count=rep_count, rep_groups=rep_groups_query, item_groups=item_groups_selected, m0_scope=m0_scope, m0_values_json=m0_values_json, cut_state_json=cut_state_json, rebase_new_cuts=(1 if rebase_new_cuts else 0), custom_x_label=(custom_titles.x if custom_titles else ''), custom_y_label=(custom_titles.y if custom_titles else ''), custom_plot_title=(custom_titles.title if custom_titles else '')) }}" aria-label="Next">&#8594;</a>
         {% else %}
         <span class="nav-arrow nav-right nav-disabled" aria-hidden="true">&#8594;</span>
         {% endif %}
@@ -354,6 +518,9 @@
 
     <script>
         const modeEl = document.getElementById("mode");
+        const aggForm = document.getElementById("agg-analysis-form");
+        const submitRestartsMlHidden = document.getElementById("submit-restarts-ml-hidden");
+        const mlSubmitBtn = document.getElementById("ml-submit-btn");
         if (modeEl) {
             modeEl.addEventListener("change", function () {
                 modeEl.form.submit();
@@ -363,6 +530,19 @@
         if (itemEl) {
             itemEl.addEventListener("change", function () {
                 itemEl.form.submit();
+            });
+        }
+        if (aggForm && submitRestartsMlHidden) {
+            aggForm.addEventListener("submit", function () {
+                if (submitRestartsMlHidden.value !== "1") {
+                    submitRestartsMlHidden.value = "0";
+                }
+            });
+        }
+        if (mlSubmitBtn && aggForm && submitRestartsMlHidden) {
+            mlSubmitBtn.addEventListener("click", function () {
+                submitRestartsMlHidden.value = "1";
+                aggForm.submit();
             });
         }
 
@@ -406,6 +586,229 @@
             });
         })();
 
+        // m0 popup + state persistence in hidden JSON.
+        (function () {
+            const modal = document.getElementById("m0-modal");
+            const openBtn = document.getElementById("open-m0-modal");
+            const cancelBtn = document.getElementById("m0-cancel");
+            const saveBtn = document.getElementById("m0-save");
+            const saveProfileBtn = document.getElementById("m0-save-profile");
+            const applyProfileBtn = document.getElementById("m0-apply-profile");
+            const autofillBtn = document.getElementById("m0-autofill-names");
+            const profileNameInput = document.getElementById("m0-profile-name");
+            const profileSelect = document.getElementById("m0-profile-select");
+            const scopeSelect = document.getElementById("m0-scope-select");
+            const scopeHidden = document.getElementById("m0-scope-hidden");
+            const valuesHidden = document.getElementById("m0-values-hidden");
+            const grid = document.getElementById("m0-input-grid");
+            if (!modal || !openBtn || !cancelBtn || !saveBtn || !scopeSelect || !scopeHidden || !valuesHidden || !grid) {
+                return;
+            }
+
+            const groupNames = {{ group_options | tojson }};
+            const wellNames = {{ well_options | tojson }};
+            const PROFILE_KEY = "kc_m0_profiles_v1";
+            let storedValues = {};
+            try {
+                storedValues = JSON.parse(valuesHidden.value || "{}") || {};
+            } catch (_) {
+                storedValues = {};
+            }
+            function loadProfiles() {
+                try {
+                    const parsed = JSON.parse(localStorage.getItem(PROFILE_KEY) || "{}");
+                    return parsed && typeof parsed === "object" ? parsed : {};
+                } catch (_) {
+                    return {};
+                }
+            }
+            function saveProfiles(profiles) {
+                try {
+                    localStorage.setItem(PROFILE_KEY, JSON.stringify(profiles || {}));
+                } catch (_) {}
+            }
+            function refreshProfileSelect() {
+                if (!profileSelect) return;
+                const profiles = loadProfiles();
+                const names = Object.keys(profiles).sort((a, b) => a.localeCompare(b));
+                profileSelect.innerHTML = "";
+                const first = document.createElement("option");
+                first.value = "";
+                first.textContent = "Select standard profile";
+                profileSelect.appendChild(first);
+                names.forEach((name) => {
+                    const opt = document.createElement("option");
+                    opt.value = name;
+                    opt.textContent = name;
+                    profileSelect.appendChild(opt);
+                });
+            }
+            function readGridValues() {
+                const values = Object.assign({}, storedValues);
+                grid.querySelectorAll("input[data-key]").forEach((el) => {
+                    const key = el.dataset.key;
+                    if (!key) return;
+                    const raw = (el.value || "").trim();
+                    if (raw === "") {
+                        delete values[key];
+                        return;
+                    }
+                    const v = Number(raw);
+                    if (!Number.isFinite(v) || v <= 0) {
+                        delete values[key];
+                        return;
+                    }
+                    values[key] = v;
+                });
+                return values;
+            }
+            function writeGridValues(values) {
+                const src = values || {};
+                grid.querySelectorAll("input[data-key]").forEach((el) => {
+                    const key = el.dataset.key;
+                    if (!key) return;
+                    const v = src[key];
+                    el.value = (v !== undefined && v !== null) ? v : "";
+                });
+            }
+            function extractNumberFromName(name) {
+                if (!name) return null;
+                const m = String(name).match(/[-+]?\d+(?:[.,]\d+)?(?:[eE][-+]?\d+)?/g);
+                if (!m || m.length === 0) return null;
+                const raw = String(m[m.length - 1]).replace(",", ".");
+                const v = Number(raw);
+                if (!Number.isFinite(v) || v <= 0) return null;
+                return v;
+            }
+
+            function renderGrid() {
+                const mode = scopeSelect.value === "well" ? "well" : "group";
+                const keys = mode === "well" ? wellNames : groupNames;
+                grid.innerHTML = "";
+                keys.forEach((key) => {
+                    const label = document.createElement("label");
+                    label.textContent = key;
+                    const input = document.createElement("input");
+                    input.type = "number";
+                    input.step = "any";
+                    input.min = "0";
+                    input.placeholder = "m0 concentration";
+                    input.dataset.key = key;
+                    input.value = storedValues[key] !== undefined ? storedValues[key] : "";
+                    grid.appendChild(label);
+                    grid.appendChild(input);
+                });
+            }
+
+            function openModal() {
+                scopeSelect.value = scopeHidden.value === "well" ? "well" : "group";
+                renderGrid();
+                refreshProfileSelect();
+                modal.classList.add("open");
+            }
+            function closeModal() {
+                modal.classList.remove("open");
+            }
+
+            openBtn.addEventListener("click", openModal);
+            cancelBtn.addEventListener("click", closeModal);
+            modal.addEventListener("click", function (evt) {
+                if (evt.target === modal) closeModal();
+            });
+            scopeSelect.addEventListener("change", renderGrid);
+
+            saveBtn.addEventListener("click", function () {
+                const next = readGridValues();
+                storedValues = next;
+                scopeHidden.value = scopeSelect.value === "well" ? "well" : "group";
+                valuesHidden.value = JSON.stringify(storedValues);
+                closeModal();
+            });
+
+            if (saveProfileBtn) {
+                saveProfileBtn.addEventListener("click", function () {
+                    const name = ((profileNameInput && profileNameInput.value) || "").trim();
+                    if (!name) return;
+                    const profiles = loadProfiles();
+                    profiles[name] = {
+                        scope: scopeSelect.value === "well" ? "well" : "group",
+                        values: readGridValues(),
+                    };
+                    saveProfiles(profiles);
+                    refreshProfileSelect();
+                    if (profileSelect) profileSelect.value = name;
+                });
+            }
+
+            if (applyProfileBtn) {
+                applyProfileBtn.addEventListener("click", function () {
+                    if (!profileSelect || !profileSelect.value) return;
+                    const profiles = loadProfiles();
+                    const profile = profiles[profileSelect.value];
+                    if (!profile || typeof profile !== "object") return;
+                    const scope = profile.scope === "well" ? "well" : "group";
+                    scopeSelect.value = scope;
+                    renderGrid();
+                    const values = (profile.values && typeof profile.values === "object") ? profile.values : {};
+                    writeGridValues(values);
+                });
+            }
+
+            if (autofillBtn) {
+                autofillBtn.addEventListener("click", function () {
+                    grid.querySelectorAll("input[data-key]").forEach((el) => {
+                        const key = el.dataset.key;
+                        if (!key) return;
+                        const v = extractNumberFromName(key);
+                        if (v !== null) {
+                            el.value = String(v);
+                        }
+                    });
+                });
+            }
+        })();
+
+        // Force normalized mode when global fitting is enabled.
+        (function () {
+            const globalCb = document.getElementById("global-fit-cb");
+            const normCb = document.getElementById("normalize-plot-cb");
+            if (!globalCb || !normCb) return;
+            function sync() {
+                if (globalCb.checked) {
+                    normCb.checked = true;
+                    normCb.disabled = true;
+                } else {
+                    normCb.disabled = false;
+                }
+            }
+            globalCb.addEventListener("change", sync);
+            sync();
+        })();
+
+        // Show merge method only when merge-group-curves is enabled.
+        (function () {
+            const mergeCb = document.getElementById("merge-group-curves-cb");
+            const mergeMethodRow = document.getElementById("merge-method-row");
+            if (!mergeCb || !mergeMethodRow) return;
+            function syncMergeUi() {
+                mergeMethodRow.style.display = mergeCb.checked ? "flex" : "none";
+            }
+            mergeCb.addEventListener("change", syncMergeUi);
+            syncMergeUi();
+        })();
+
+        // Show/hide kinetic phase color rows.
+        (function () {
+            const phaseCb = document.getElementById("visualize-kinetic-phases-cb");
+            const rows = document.getElementById("phase-color-rows");
+            if (!phaseCb || !rows) return;
+            function sync() {
+                rows.style.display = phaseCb.checked ? "block" : "none";
+            }
+            phaseCb.addEventListener("change", sync);
+            sync();
+        })();
+
         // Lightweight interactive hover for group mode:
         // show well id near cursor when hovering a curve.
         (function () {
@@ -420,9 +823,22 @@
             const globalFit = payload.global_fit || {};
             const hasGlobalFit = !!globalFit.enabled;
             const showResidualPanel = !!globalFit.show_residuals;
+            const kineticPhaseEnabled = {{ (1 if visualize_kinetic_phases else 0) | tojson }} === 1;
+            const phasePrimaryColor = {{ phase_primary_color | tojson }};
+            const phaseSecondaryColor = {{ phase_secondary_color | tojson }};
+            const phaseDepletionColor = {{ phase_depletion_color | tojson }};
 
             const canvas = document.getElementById("agg-plot-canvas");
             const tooltip = document.getElementById("agg-plot-tooltip");
+            const zoomOutBtn = document.getElementById("agg-zoom-out-btn");
+            const zoomResetBtn = document.getElementById("agg-zoom-reset-btn");
+            const cutModeBtn = document.getElementById("agg-cut-mode-btn");
+            const cutSmartBtn = document.getElementById("agg-cut-smart-btn");
+            const cutUndoBtn = document.getElementById("agg-cut-undo-btn");
+            const cutRebaseBtn = document.getElementById("agg-cut-rebase-btn");
+            const cutLoadBtn = document.getElementById("agg-cut-load-btn");
+            const cutStateHidden = document.getElementById("cut-state-hidden");
+            const rebaseCutsHidden = document.getElementById("rebase-cuts-hidden");
             if (!canvas || !canvas.getContext) {
                 return;
             }
@@ -438,25 +854,226 @@
             }
 
             const xs = payload.x;
-            let yMin = Infinity;
-            let yMax = -Infinity;
+            let dataYMin = Infinity;
+            let dataYMax = -Infinity;
             payload.traces.forEach(tr => {
                 tr.y.forEach(v => {
                     if (!isFinite(v)) return;
-                    if (v < yMin) yMin = v;
-                    if (v > yMax) yMax = v;
+                    if (v < dataYMin) dataYMin = v;
+                    if (v > dataYMax) dataYMax = v;
                 });
                 if (hasGlobalFit && globalFit.model_predictions && Array.isArray(globalFit.model_predictions[tr.well])) {
                     globalFit.model_predictions[tr.well].forEach(v => {
                         if (!isFinite(v)) return;
-                        if (v < yMin) yMin = v;
-                        if (v > yMax) yMax = v;
+                        if (v < dataYMin) dataYMin = v;
+                        if (v > dataYMax) dataYMax = v;
                     });
                 }
             });
-            if (!isFinite(yMin) || !isFinite(yMax) || yMin === yMax) {
-                yMin = 0;
-                yMax = 1;
+            if (!isFinite(dataYMin) || !isFinite(dataYMax) || dataYMin === dataYMax) {
+                dataYMin = 0;
+                dataYMax = 1;
+            }
+            let viewXMin = xs[0];
+            let viewXMax = xs[xs.length - 1];
+            let viewYMin = dataYMin;
+            let viewYMax = dataYMax;
+            let isZoomDragging = false;
+            let zoomDragStart = null;
+            let zoomDragCurrent = null;
+            let cutModeActive = false;
+            let rebaseNewCuts = !!payload.rebase_new_cuts;
+            const cutByWell = {};
+            const cutHistory = [];
+            const scissorsCursor = (() => {
+                const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><text x="2" y="18" font-size="18">✂</text></svg>`;
+                return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 3 18, crosshair`;
+            })();
+
+            function clamp(v, lo, hi) {
+                return Math.max(lo, Math.min(hi, v));
+            }
+            function cloneCutState() {
+                return JSON.parse(JSON.stringify(cutByWell || {}));
+            }
+            function getCutForWell(well) {
+                return cutByWell[well] || null;
+            }
+            function normalizeCutState(c) {
+                if (!c || typeof c !== "object") {
+                    return { leftBoundOrig: -1e18, rightBoundOrig: 1e18, shift: 0.0 };
+                }
+                // New format
+                if (Number.isFinite(c.leftBoundOrig) || Number.isFinite(c.rightBoundOrig)) {
+                    const left = Number.isFinite(c.leftBoundOrig) ? c.leftBoundOrig : -1e18;
+                    const right = Number.isFinite(c.rightBoundOrig) ? c.rightBoundOrig : 1e18;
+                    return {
+                        leftBoundOrig: left,
+                        rightBoundOrig: right,
+                        shift: Number.isFinite(c.shift) ? c.shift : 0.0,
+                    };
+                }
+                // Backward compatibility with old single-cut format.
+                if (Number.isFinite(c.cutXOrig) && typeof c.keepSide === "string") {
+                    if (c.keepSide === "right") {
+                        return {
+                            leftBoundOrig: c.cutXOrig,
+                            rightBoundOrig: 1e18,
+                            shift: Number.isFinite(c.shift) ? c.shift : 0.0,
+                        };
+                    }
+                    return {
+                        leftBoundOrig: -1e18,
+                        rightBoundOrig: c.cutXOrig,
+                        shift: Number.isFinite(c.shift) ? c.shift : 0.0,
+                    };
+                }
+                return { leftBoundOrig: -1e18, rightBoundOrig: 1e18, shift: Number.isFinite(c.shift) ? c.shift : 0.0 };
+            }
+            function refreshCutStateHidden() {
+                if (cutStateHidden) {
+                    cutStateHidden.value = JSON.stringify(cutByWell || {});
+                }
+                if (rebaseCutsHidden) {
+                    rebaseCutsHidden.value = rebaseNewCuts ? "1" : "0";
+                }
+            }
+            const initialCutState = (payload.cut_state && typeof payload.cut_state === "object") ? payload.cut_state : {};
+            Object.keys(initialCutState).forEach((w) => {
+                cutByWell[w] = normalizeCutState(initialCutState[w]);
+            });
+            // Ensure shift matches selected alignment mode from the backend state.
+            if (rebaseNewCuts) {
+                Object.keys(cutByWell).forEach((w) => {
+                    const c = normalizeCutState(cutByWell[w]);
+                    c.shift = c.leftBoundOrig;
+                    cutByWell[w] = c;
+                });
+            } else {
+                Object.keys(cutByWell).forEach((w) => {
+                    const c = normalizeCutState(cutByWell[w]);
+                    c.shift = 0.0;
+                    cutByWell[w] = c;
+                });
+            }
+            refreshCutStateHidden();
+            function transformedXForWell(well, xOrig) {
+                const c = normalizeCutState(getCutForWell(well));
+                if (!c) return xOrig;
+                if (xOrig < c.leftBoundOrig || xOrig > c.rightBoundOrig) return null;
+                return xOrig - (c.shift || 0.0);
+            }
+            function halftimeXOriginal(tr) {
+                if (payload.halftimes && Number.isFinite(Number(payload.halftimes[tr.well]))) {
+                    return Number(payload.halftimes[tr.well]);
+                }
+                if (globalFit.halftimes && Number.isFinite(Number(globalFit.halftimes[tr.well]))) {
+                    return Number(globalFit.halftimes[tr.well]);
+                }
+                if (Array.isArray(tr.dots)) {
+                    for (const d of tr.dots) {
+                        if (d && d.kind === "halftime" && Number.isFinite(Number(d.x))) {
+                            return Number(d.x);
+                        }
+                    }
+                }
+                return null;
+            }
+            function baselinePlateauXOriginal(tr) {
+                const pp = (payload.predicted_points && payload.predicted_points[tr.well])
+                    ? payload.predicted_points[tr.well]
+                    : null;
+                if (!pp) return null;
+                const b = Number(pp.baseline_x);
+                const p = Number(pp.plateau_x);
+                if (!Number.isFinite(b) || !Number.isFinite(p) || b === p) {
+                    return null;
+                }
+                return {
+                    baseline: Math.min(b, p),
+                    plateau: Math.max(b, p),
+                };
+            }
+            function updateCutButtons() {
+                const globalFitCb = document.getElementById("global-fit-cb");
+                if (cutModeBtn) {
+                    cutModeBtn.textContent = cutModeActive ? "✂ Cut mode ON" : "✂ Cut off lag time";
+                    cutModeBtn.style.background = cutModeActive ? "#b45309" : "#7c2d12";
+                }
+                if (cutSmartBtn) {
+                    cutSmartBtn.disabled = false;
+                    cutSmartBtn.style.opacity = "1";
+                    cutSmartBtn.title = "Auto-cut all curves between predicted baseline x and plateau x";
+                }
+                if (cutRebaseBtn) {
+                    cutRebaseBtn.style.background = rebaseNewCuts ? "#1d4ed8" : "#64748b";
+                    cutRebaseBtn.textContent = rebaseNewCuts ? "Alignment: ON" : "Alignment: OFF";
+                    cutRebaseBtn.disabled = false;
+                    cutRebaseBtn.style.opacity = "1";
+                    cutRebaseBtn.title = "";
+                }
+                if (cutUndoBtn) {
+                    cutUndoBtn.disabled = cutHistory.length === 0;
+                    cutUndoBtn.style.opacity = cutHistory.length === 0 ? "0.55" : "1";
+                }
+                canvas.style.cursor = cutModeActive ? scissorsCursor : "default";
+            }
+            function resetZoom() {
+                if (rebaseNewCuts) {
+                    const b = getVisibleXBounds();
+                    viewXMin = b.min;
+                    viewXMax = b.max;
+                } else {
+                    viewXMin = xs[0];
+                    viewXMax = xs[xs.length - 1];
+                }
+                viewYMin = dataYMin;
+                viewYMax = dataYMax;
+                isZoomDragging = false;
+                zoomDragStart = null;
+                zoomDragCurrent = null;
+                tooltip.style.display = "none";
+                draw();
+            }
+            function getVisibleXBounds() {
+                let minX = Infinity;
+                let maxX = -Infinity;
+                payload.traces.forEach((tr) => {
+                    for (let i = 0; i < xs.length; i++) {
+                        const xv = transformedXForWell(tr.well, xs[i]);
+                        if (!Number.isFinite(xv)) continue;
+                        if (xv < minX) minX = xv;
+                        if (xv > maxX) maxX = xv;
+                    }
+                });
+                if (!Number.isFinite(minX) || !Number.isFinite(maxX) || maxX <= minX) {
+                    return { min: xs[0], max: xs[xs.length - 1] };
+                }
+                return { min: minX, max: maxX };
+            }
+            if (rebaseNewCuts) {
+                const b = getVisibleXBounds();
+                viewXMin = b.min;
+                viewXMax = b.max;
+            }
+            function zoomOutStep(factor) {
+                const f = Number.isFinite(factor) && factor > 1 ? factor : 2.0;
+                const xCenter = (viewXMin + viewXMax) * 0.5;
+                const yCenter = (viewYMin + viewYMax) * 0.5;
+                const xHalf = (viewXMax - viewXMin) * 0.5 * f;
+                const yHalf = (viewYMax - viewYMin) * 0.5 * f;
+                const b = rebaseNewCuts
+                    ? getVisibleXBounds()
+                    : { min: xs[0], max: xs[xs.length - 1] };
+                viewXMin = Math.max(b.min, xCenter - xHalf);
+                viewXMax = Math.min(b.max, xCenter + xHalf);
+                viewYMin = Math.max(dataYMin, yCenter - yHalf);
+                viewYMax = Math.min(dataYMax, yCenter + yHalf);
+                if (viewXMax <= viewXMin + 1e-12 || viewYMax <= viewYMin + 1e-12) {
+                    resetZoom();
+                    return;
+                }
+                draw();
             }
 
             function draw() {
@@ -473,16 +1090,22 @@
                 const mainBottom = H - padB - resH - resGap;
                 ctx.clearRect(0, 0, W, H);
 
-                const x0 = xs[0];
-                const x1 = xs[xs.length - 1];
+                const x0 = viewXMin;
+                const x1 = viewXMax;
                 const xSpan = x1 - x0 || 1;
-                const ySpan = yMax - yMin || 1;
+                const ySpan = viewYMax - viewYMin || 1;
 
                 function xToPx(x) {
                     return padL + ((x - x0) / xSpan) * (W - padL - padR);
                 }
                 function yToPx(y) {
-                    return mainBottom - ((y - yMin) / ySpan) * (mainBottom - mainTop);
+                    return mainBottom - ((y - viewYMin) / ySpan) * (mainBottom - mainTop);
+                }
+                function pxToX(px) {
+                    return x0 + ((px - padL) / (W - padL - padR)) * xSpan;
+                }
+                function pxToY(py) {
+                    return viewYMin + ((mainBottom - py) / (mainBottom - mainTop)) * ySpan;
                 }
 
                 // Axes + ticks/labels so x/y values are visible.
@@ -515,14 +1138,14 @@
                 ctx.textBaseline = "middle";
                 const yTicks = 5;
                 for (let t = 0; t <= yTicks; t++) {
-                    const yv = yMin + (t / yTicks) * ySpan;
+                    const yv = viewYMin + (t / yTicks) * ySpan;
                     const py = yToPx(yv);
                     ctx.beginPath();
                     ctx.moveTo(padL - 5 * dpr, py);
                     ctx.lineTo(padL, py);
                     ctx.strokeStyle = "#9ca3af";
                     ctx.stroke();
-                    ctx.fillText(yv.toFixed(0), padL - 8 * dpr, py);
+                    ctx.fillText(yv.toFixed(2), padL - 8 * dpr, py);
                 }
 
                 // Axis titles.
@@ -542,46 +1165,247 @@
                 ctx.restore();
 
                 // Curves
+                const drawSharedGlobalFit = hasGlobalFit;
+                function interpSeriesAtX(xSeries, ySeries, xq) {
+                    if (!Array.isArray(xSeries) || !Array.isArray(ySeries) || xSeries.length !== ySeries.length || xSeries.length < 2) {
+                        return null;
+                    }
+                    if (xq < xSeries[0] || xq > xSeries[xSeries.length - 1]) return null;
+                    let lo = 0;
+                    let hi = xSeries.length - 1;
+                    while (hi - lo > 1) {
+                        const mid = (lo + hi) >> 1;
+                        if (xSeries[mid] <= xq) lo = mid;
+                        else hi = mid;
+                    }
+                    const x0s = xSeries[lo];
+                    const x1s = xSeries[hi];
+                    const y0s = ySeries[lo];
+                    const y1s = ySeries[hi];
+                    if (!Number.isFinite(y0s) || !Number.isFinite(y1s)) return null;
+                    const dxs = x1s - x0s;
+                    if (!Number.isFinite(dxs) || Math.abs(dxs) < 1e-12) return y0s;
+                    const f = (xq - x0s) / dxs;
+                    return y0s + (y1s - y0s) * f;
+                }
                 payload.traces.forEach(tr => {
                     const yArr = tr.y;
                     if (!yArr || yArr.length !== xs.length) return;
+                    const fitY = (hasGlobalFit && globalFit.model_predictions && Array.isArray(globalFit.model_predictions[tr.well]) && globalFit.model_predictions[tr.well].length === xs.length)
+                        ? globalFit.model_predictions[tr.well]
+                        : null;
+                    function xAtThreshold(ySeries, threshold) {
+                        if (!Array.isArray(ySeries) || ySeries.length !== xs.length) return null;
+                        for (let i = 1; i < xs.length; i++) {
+                            const y0 = ySeries[i - 1];
+                            const y1 = ySeries[i];
+                            if (!Number.isFinite(y0) || !Number.isFinite(y1)) continue;
+                            if ((y0 <= threshold && y1 >= threshold) || (y0 >= threshold && y1 <= threshold)) {
+                                const dy = y1 - y0;
+                                const frac = Math.abs(dy) > 1e-12 ? (threshold - y0) / dy : 0.0;
+                                return xs[i - 1] + frac * (xs[i] - xs[i - 1]);
+                            }
+                        }
+                        return null;
+                    }
+                    function drawSegmentedByPhase(ySeries, width, dashed) {
+                        const condMap = globalFit.conditions || {};
+                        const htMap = globalFit.halftimes || {};
+                        const m0 = Number(condMap[tr.well]);
+                        const k2p = Number((globalFit.best_params || {}).k2_plus);
+                        let tHalf = Number(htMap[tr.well]);
+                        if (!Number.isFinite(tHalf)) {
+                            tHalf = xAtThreshold(fitY || ySeries, 0.5);
+                        }
+                        const t95 = xAtThreshold(fitY || ySeries, 0.95);
+                        if (!Number.isFinite(m0) || m0 <= 0 || !Number.isFinite(k2p) || k2p <= 0 || !Number.isFinite(tHalf) || !Number.isFinite(t95)) {
+                            ctx.beginPath();
+                            ctx.strokeStyle = tr.color || "#2563EB";
+                            ctx.lineWidth = width;
+                            if (dashed) ctx.setLineDash([6 * dpr, 4 * dpr]);
+                            let started = false;
+                            xs.forEach((xVal, i) => {
+                                const xVis = transformedXForWell(tr.well, xVal);
+                                if (xVis === null) {
+                                    started = false;
+                                    return;
+                                }
+                                const px = xToPx(xVis);
+                                const py = yToPx(ySeries[i]);
+                                if (!started) {
+                                    ctx.moveTo(px, py);
+                                    started = true;
+                                } else {
+                                    ctx.lineTo(px, py);
+                                }
+                            });
+                            ctx.stroke();
+                            if (dashed) ctx.setLineDash([]);
+                            return;
+                        }
+                        const kappa = Math.sqrt(Math.max(0.0, 2.0 * m0 * k2p));
+                        const tLag = (Number.isFinite(kappa) && kappa > 1e-12) ? (tHalf - (2.0 / kappa)) : xs[0];
+                        const zoneColor = function (xv) {
+                            if (xv < tLag) return phasePrimaryColor;
+                            if (xv < t95) return phaseSecondaryColor;
+                            return phaseDepletionColor;
+                        };
+                        let start = 0;
+                        while (start < xs.length) {
+                            const c = zoneColor(xs[start]);
+                            let end = start + 1;
+                            while (end < xs.length && zoneColor(xs[end]) === c) end++;
+                            ctx.beginPath();
+                            ctx.strokeStyle = c;
+                            ctx.lineWidth = width;
+                            if (dashed) ctx.setLineDash([6 * dpr, 4 * dpr]);
+                            let started = false;
+                            for (let i = start; i < end; i++) {
+                                const xVis = transformedXForWell(tr.well, xs[i]);
+                                if (xVis === null) {
+                                    started = false;
+                                    continue;
+                                }
+                                const px = xToPx(xVis);
+                                const py = yToPx(ySeries[i]);
+                                if (!started) {
+                                    ctx.moveTo(px, py);
+                                    started = true;
+                                } else {
+                                    ctx.lineTo(px, py);
+                                }
+                            }
+                            ctx.stroke();
+                            if (dashed) ctx.setLineDash([]);
+                            start = end;
+                        }
+                    }
                     // Raw data points (so users can verify fit vs data).
                     const stride = Math.max(1, Math.floor(xs.length / 180));
                     for (let i = 0; i < xs.length; i += stride) {
-                        const px = xToPx(xs[i]);
+                        const xVis = transformedXForWell(tr.well, xs[i]);
+                        if (xVis === null) continue;
+                        const px = xToPx(xVis);
                         const py = yToPx(yArr[i]);
                         ctx.beginPath();
                         ctx.fillStyle = (tr.color || "#2563EB") + "55";
                         ctx.arc(px, py, 1.5 * dpr, 0, Math.PI * 2);
                         ctx.fill();
                     }
-                    ctx.beginPath();
-                    ctx.strokeStyle = tr.color || "#2563EB";
-                    ctx.lineWidth = 1.5 * window.devicePixelRatio;
-                    xs.forEach((xVal, i) => {
-                        const px = xToPx(xVal);
-                        const py = yToPx(yArr[i]);
-                        if (i === 0) {
-                            ctx.moveTo(px, py);
+                    if (kineticPhaseEnabled && hasGlobalFit) {
+                        drawSegmentedByPhase(yArr, 1.5 * window.devicePixelRatio, false);
+                    } else {
+                        ctx.beginPath();
+                        ctx.strokeStyle = tr.color || "#2563EB";
+                        ctx.lineWidth = 1.5 * window.devicePixelRatio;
+                        let started = false;
+                        xs.forEach((xVal, i) => {
+                            const xVis = transformedXForWell(tr.well, xVal);
+                            if (xVis === null) {
+                                started = false;
+                                return;
+                            }
+                            const px = xToPx(xVis);
+                            const py = yToPx(yArr[i]);
+                            if (!started) {
+                                ctx.moveTo(px, py);
+                                started = true;
+                            } else {
+                                ctx.lineTo(px, py);
+                            }
+                        });
+                        ctx.stroke();
+                    }
+                    if (fitY && !drawSharedGlobalFit) {
+                        if (kineticPhaseEnabled && hasGlobalFit) {
+                            drawSegmentedByPhase(fitY, 2.5 * window.devicePixelRatio, true);
                         } else {
-                            ctx.lineTo(px, py);
-                        }
-                    });
-                    ctx.stroke();
-                    if (hasGlobalFit && globalFit.model_predictions && Array.isArray(globalFit.model_predictions[tr.well])) {
-                        const fitY = globalFit.model_predictions[tr.well];
-                        if (fitY.length === xs.length) {
                             ctx.beginPath();
                             ctx.strokeStyle = tr.color || "#2563EB";
                             ctx.lineWidth = 2.5 * window.devicePixelRatio;
                             ctx.setLineDash([6 * dpr, 4 * dpr]);
+                            let started = false;
                             xs.forEach((xVal, i) => {
-                                const px = xToPx(xVal);
+                                const xVis = transformedXForWell(tr.well, xVal);
+                                if (xVis === null) {
+                                    started = false;
+                                    return;
+                                }
+                                const px = xToPx(xVis);
                                 const py = yToPx(fitY[i]);
-                                if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                                if (!started) {
+                                    ctx.moveTo(px, py);
+                                    started = true;
+                                } else {
+                                    ctx.lineTo(px, py);
+                                }
                             });
                             ctx.stroke();
                             ctx.setLineDash([]);
+                        }
+                    }
+
+                    // Show removed segment lightly (only when Alignment is OFF).
+                    const cPreview = getCutForWell(tr.well);
+                    if (cPreview && !rebaseNewCuts) {
+                        const cNorm = normalizeCutState(cPreview);
+                    const drawFadedRemoved = function(ySeries, width, dashed) {
+                            ctx.save();
+                            ctx.globalAlpha = 0.22;
+                            const condMap = globalFit.conditions || {};
+                            const htMap = globalFit.halftimes || {};
+                            const m0 = Number(condMap[tr.well]);
+                            const k2p = Number((globalFit.best_params || {}).k2_plus);
+                            let tHalf = Number(htMap[tr.well]);
+                            if (!Number.isFinite(tHalf)) {
+                                tHalf = xAtThreshold(fitY || ySeries, 0.5);
+                            }
+                            const t95 = xAtThreshold(fitY || ySeries, 0.95);
+                            const usePhase = kineticPhaseEnabled && hasGlobalFit && Number.isFinite(m0) && m0 > 0 && Number.isFinite(k2p) && k2p > 0 && Number.isFinite(tHalf) && Number.isFinite(t95);
+                            const kappa = usePhase ? Math.sqrt(Math.max(0.0, 2.0 * m0 * k2p)) : NaN;
+                            const tLag = (usePhase && Number.isFinite(kappa) && kappa > 1e-12) ? (tHalf - (2.0 / kappa)) : xs[0];
+                            const zoneColor = function (xv) {
+                                if (xv < tLag) return phasePrimaryColor;
+                                if (xv < t95) return phaseSecondaryColor;
+                                return phaseDepletionColor;
+                            };
+                            const drawOne = function (color, maskFn) {
+                                ctx.beginPath();
+                                ctx.strokeStyle = color;
+                                ctx.lineWidth = width;
+                                if (dashed) ctx.setLineDash([5 * dpr, 4 * dpr]);
+                                let started = false;
+                                xs.forEach((xVal, i) => {
+                                    const removed = (xVal < cNorm.leftBoundOrig) || (xVal > cNorm.rightBoundOrig);
+                                    if (!removed || !maskFn(xVal)) {
+                                        started = false;
+                                        return;
+                                    }
+                                    const xVis = xVal - (cNorm.shift || 0.0);
+                                    const px = xToPx(xVis);
+                                    const py = yToPx(ySeries[i]);
+                                    if (!started) {
+                                        ctx.moveTo(px, py);
+                                        started = true;
+                                    } else {
+                                        ctx.lineTo(px, py);
+                                    }
+                                });
+                                ctx.stroke();
+                                if (dashed) ctx.setLineDash([]);
+                            };
+                            if (usePhase) {
+                                drawOne(phasePrimaryColor, (xv) => xv < tLag);
+                                drawOne(phaseSecondaryColor, (xv) => xv >= tLag && xv < t95);
+                                drawOne(phaseDepletionColor, (xv) => xv >= t95);
+                            } else {
+                                drawOne(tr.color || "#2563EB", () => true);
+                            }
+                            ctx.restore();
+                        };
+                        drawFadedRemoved(yArr, 1.3 * window.devicePixelRatio, false);
+                        if (!drawSharedGlobalFit && fitY && fitY.length === xs.length) {
+                            drawFadedRemoved(fitY, 2.0 * window.devicePixelRatio, true);
                         }
                     }
 
@@ -591,7 +1415,9 @@
                             const dx = typeof dot.x === "number" ? dot.x : null;
                             const dy = typeof dot.y === "number" ? dot.y : null;
                             if (dx === null || dy === null) return;
-                            const px = xToPx(dx);
+                            const xVis = transformedXForWell(tr.well, dx);
+                            if (xVis === null) return;
+                            const px = xToPx(xVis);
                             const py = yToPx(dy);
                             const radius = 4 * window.devicePixelRatio;
                             ctx.beginPath();
@@ -605,6 +1431,87 @@
                         });
                     }
                 });
+
+                // Draw one shared global-fit dashed curve across all visible wells.
+                if (drawSharedGlobalFit && globalFit.model_predictions) {
+                    const fitDisplayByWell = {};
+                    payload.traces.forEach((tr) => {
+                        const fitY = globalFit.model_predictions[tr.well];
+                        if (!Array.isArray(fitY) || fitY.length !== xs.length) return;
+                        const xDispSeries = [];
+                        const ySeries = [];
+                        for (let i = 0; i < xs.length; i++) {
+                            const xv = transformedXForWell(tr.well, xs[i]);
+                            if (!Number.isFinite(xv)) continue;
+                            xDispSeries.push(xv);
+                            ySeries.push(fitY[i]);
+                        }
+                        if (xDispSeries.length >= 2) {
+                            fitDisplayByWell[tr.well] = { x: xDispSeries, y: ySeries };
+                        }
+                    });
+                    const sharedY = [];
+                    for (let i = 0; i < xs.length; i++) {
+                        const xDisp = xs[i];
+                        const vals = [];
+                        payload.traces.forEach((tr) => {
+                            const fd = fitDisplayByWell[tr.well];
+                            if (!fd) return;
+                            const c = normalizeCutState(getCutForWell(tr.well));
+                            if (xDisp < fd.x[0] || xDisp > fd.x[fd.x.length - 1]) return;
+                            // keep inside visible kept-range for this curve
+                            const leftDisp = c.leftBoundOrig - (c.shift || 0.0);
+                            const rightDisp = c.rightBoundOrig - (c.shift || 0.0);
+                            if (xDisp < leftDisp || xDisp > rightDisp) return;
+                            const v = interpSeriesAtX(fd.x, fd.y, xDisp);
+                            if (Number.isFinite(v)) vals.push(v);
+                        });
+                        if (vals.length === 0) {
+                            sharedY.push(null);
+                        } else {
+                            const avg = vals.reduce((a, b) => a + b, 0.0) / vals.length;
+                            sharedY.push(avg);
+                        }
+                    }
+                    // Fallback: if cuts/alignment filtering removed everything, draw plain mean fit.
+                    if (!sharedY.some((v) => Number.isFinite(v))) {
+                        for (let i = 0; i < xs.length; i++) {
+                            const xDisp = xs[i];
+                            const vals = [];
+                            payload.traces.forEach((tr) => {
+                                const fd = fitDisplayByWell[tr.well];
+                                if (!fd) return;
+                                const v = interpSeriesAtX(fd.x, fd.y, xDisp);
+                                if (Number.isFinite(v)) vals.push(v);
+                            });
+                            if (vals.length > 0) {
+                                sharedY[i] = vals.reduce((a, b) => a + b, 0.0) / vals.length;
+                            }
+                        }
+                    }
+                    ctx.beginPath();
+                    ctx.strokeStyle = "#111827";
+                    ctx.lineWidth = 2.6 * window.devicePixelRatio;
+                    ctx.setLineDash([7 * dpr, 5 * dpr]);
+                    let started = false;
+                    for (let i = 0; i < xs.length; i++) {
+                        const yv = sharedY[i];
+                        if (!Number.isFinite(yv)) {
+                            started = false;
+                            continue;
+                        }
+                        const px = xToPx(xs[i]);
+                        const py = yToPx(yv);
+                        if (!started) {
+                            ctx.moveTo(px, py);
+                            started = true;
+                        } else {
+                            ctx.lineTo(px, py);
+                        }
+                    }
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
 
                 // Optional residual panel (data - model).
                 if (showResidualPanel && hasGlobalFit && globalFit.residuals) {
@@ -653,10 +1560,21 @@
                         ctx.beginPath();
                         ctx.strokeStyle = tr.color || "#2563EB";
                         ctx.lineWidth = 1.2 * dpr;
+                        let started = false;
                         xs.forEach((xVal, i) => {
-                            const px = xToPx(xVal);
+                            const xVis = transformedXForWell(tr.well, xVal);
+                            if (xVis === null) {
+                                started = false;
+                                return;
+                            }
+                            const px = xToPx(xVis);
                             const py = rToPx(rr[i]);
-                            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                            if (!started) {
+                                ctx.moveTo(px, py);
+                                started = true;
+                            } else {
+                                ctx.lineTo(px, py);
+                            }
                         });
                         ctx.stroke();
                     });
@@ -667,19 +1585,55 @@
                     ctx.fillText("Residuals (data - model)", padL + 2 * dpr, resTop + 2 * dpr);
                 }
 
+                if (isZoomDragging && zoomDragStart && zoomDragCurrent) {
+                    if (cutModeActive) {
+                        ctx.save();
+                        ctx.strokeStyle = "rgba(220, 38, 38, 0.95)";
+                        ctx.lineWidth = 2 * dpr;
+                        ctx.setLineDash([5 * dpr, 4 * dpr]);
+                        ctx.beginPath();
+                        ctx.moveTo(zoomDragStart.x, zoomDragStart.y);
+                        ctx.lineTo(zoomDragCurrent.x, zoomDragCurrent.y);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                        ctx.restore();
+                    } else {
+                        const rx = Math.min(zoomDragStart.x, zoomDragCurrent.x);
+                        const ry = Math.min(zoomDragStart.y, zoomDragCurrent.y);
+                        const rw = Math.abs(zoomDragCurrent.x - zoomDragStart.x);
+                        const rh = Math.abs(zoomDragCurrent.y - zoomDragStart.y);
+                        if (rw > 1 && rh > 1) {
+                            ctx.save();
+                            ctx.fillStyle = "rgba(37, 99, 235, 0.15)";
+                            ctx.strokeStyle = "rgba(37, 99, 235, 0.9)";
+                            ctx.lineWidth = 1 * dpr;
+                            ctx.fillRect(rx, ry, rw, rh);
+                            ctx.strokeRect(rx, ry, rw, rh);
+                            ctx.restore();
+                        }
+                    }
+                }
+
                 // Store helper for hit testing
                 canvas._aggPlot = {
                     xToPx,
                     yToPx,
                     xs,
-                    yMin,
-                    yMax,
+                    yMin: viewYMin,
+                    yMax: viewYMax,
                     xSpan,
                     ySpan,
+                    x0,
+                    x1,
                     padL,
                     padR,
                     padT,
                     padB,
+                    mainTop,
+                    mainBottom,
+                    pxToX,
+                    pxToY,
+                    transformedXForWell,
                     traces: payload.traces,
                 };
             }
@@ -694,13 +1648,31 @@
                 const mx = (evt.clientX - rect.left) * window.devicePixelRatio;
                 const my = (evt.clientY - rect.top) * window.devicePixelRatio;
 
+                if (isZoomDragging) {
+                    const clampedX = clamp(mx, state.padL, canvas.width - state.padR);
+                    const clampedY = clamp(my, state.mainTop, state.mainBottom);
+                    zoomDragCurrent = { x: clampedX, y: clampedY };
+                    tooltip.style.display = "none";
+                    draw();
+                    return;
+                }
+
+                if (cutModeActive) {
+                    tooltip.style.display = "none";
+                    canvas.style.cursor = scissorsCursor;
+                    draw();
+                    return;
+                }
+
                 let best = null;
                 const maxDist = 15 * window.devicePixelRatio;
                 state.traces.forEach(tr => {
                     const yArr = tr.y;
                     if (!yArr || yArr.length !== state.xs.length) return;
                     state.xs.forEach((xVal, i) => {
-                        const px = state.xToPx(xVal);
+                        const xVis = state.transformedXForWell(tr.well, xVal);
+                        if (xVis === null) return;
+                        const px = state.xToPx(xVis);
                         const py = state.yToPx(yArr[i]);
                         const dx = mx - px;
                         const dy = my - py;
@@ -716,7 +1688,9 @@
                             const dx = typeof dot.x === "number" ? dot.x : null;
                             const dy = typeof dot.y === "number" ? dot.y : null;
                             if (dx === null || dy === null) return;
-                            const px = state.xToPx(dx);
+                            const xVis = state.transformedXForWell(tr.well, dx);
+                            if (xVis === null) return;
+                            const px = state.xToPx(xVis);
                             const py = state.yToPx(dy);
                             const dxm = mx - px;
                             const dym = my - py;
@@ -730,7 +1704,7 @@
 
                 if (!best) {
                     tooltip.style.display = "none";
-                    canvas.style.cursor = "default";
+                    canvas.style.cursor = cutModeActive ? scissorsCursor : "default";
                     return;
                 }
 
@@ -749,14 +1723,293 @@
                 const tooltipY = evt.clientY - rect.top + 12;
                 tooltip.style.left = tooltipX + "px";
                 tooltip.style.top = tooltipY + "px";
-                canvas.style.cursor = "crosshair";
+                canvas.style.cursor = cutModeActive ? scissorsCursor : "crosshair";
             });
 
             canvas.addEventListener("mouseleave", function () {
                 tooltip.style.display = "none";
-                canvas.style.cursor = "default";
+                canvas.style.cursor = cutModeActive ? scissorsCursor : "default";
+                if (isZoomDragging) {
+                    isZoomDragging = false;
+                    zoomDragStart = null;
+                    zoomDragCurrent = null;
+                }
                 draw();
             });
+
+            canvas.addEventListener("mousedown", function (evt) {
+                const state = canvas._aggPlot;
+                if (!state || evt.button !== 0) return;
+                const rect = canvas.getBoundingClientRect();
+                const mx = (evt.clientX - rect.left) * window.devicePixelRatio;
+                const my = (evt.clientY - rect.top) * window.devicePixelRatio;
+                if (mx < state.padL || mx > (canvas.width - state.padR) || my < state.mainTop || my > state.mainBottom) {
+                    return;
+                }
+                isZoomDragging = true;
+                const cx = clamp(mx, state.padL, canvas.width - state.padR);
+                const cy = clamp(my, state.mainTop, state.mainBottom);
+                zoomDragStart = { x: cx, y: cy };
+                zoomDragCurrent = { x: cx, y: cy };
+                tooltip.style.display = "none";
+                draw();
+            });
+
+            canvas.addEventListener("mouseup", function () {
+                const state = canvas._aggPlot;
+                if (!state || !isZoomDragging || !zoomDragStart || !zoomDragCurrent) return;
+                const dx = Math.abs(zoomDragCurrent.x - zoomDragStart.x);
+                const dy = Math.abs(zoomDragCurrent.y - zoomDragStart.y);
+                const minDrag = 8 * window.devicePixelRatio;
+                if (dx >= minDrag && dy >= minDrag) {
+                    const xA = state.pxToX(Math.min(zoomDragStart.x, zoomDragCurrent.x));
+                    const xB = state.pxToX(Math.max(zoomDragStart.x, zoomDragCurrent.x));
+                    const yA = state.pxToY(Math.max(zoomDragStart.y, zoomDragCurrent.y));
+                    const yB = state.pxToY(Math.min(zoomDragStart.y, zoomDragCurrent.y));
+                    if (cutModeActive) {
+                        const l1x = zoomDragStart.x;
+                        const l1y = zoomDragStart.y;
+                        const l2x = zoomDragCurrent.x;
+                        const l2y = zoomDragCurrent.y;
+                        const lineDx = l2x - l1x;
+                        const lineDy = l2y - l1y;
+                        const lineLen2 = lineDx * lineDx + lineDy * lineDy;
+                        function segmentIntersect(px1, py1, px2, py2, qx1, qy1, qx2, qy2) {
+                            const rdx = px2 - px1;
+                            const rdy = py2 - py1;
+                            const sdx = qx2 - qx1;
+                            const sdy = qy2 - qy1;
+                            const den = (rdx * sdy - rdy * sdx);
+                            if (Math.abs(den) < 1e-12) return null;
+                            const u = ((qx1 - px1) * rdy - (qy1 - py1) * rdx) / den;
+                            const t = ((qx1 - px1) * sdy - (qy1 - py1) * sdx) / den;
+                            if (t < 0 || t > 1 || u < 0 || u > 1) return null;
+                            return { x: px1 + t * rdx, y: py1 + t * rdy };
+                        }
+                        cutHistory.push(cloneCutState());
+                        let anyApplied = false;
+
+                        payload.traces.forEach((tr) => {
+                            const yArr = tr.y;
+                            if (!yArr || yArr.length !== xs.length) return;
+                            let bestIntersection = null;
+                            for (let i = 1; i < xs.length; i++) {
+                                const xVis1 = transformedXForWell(tr.well, xs[i - 1]);
+                                const xVis2 = transformedXForWell(tr.well, xs[i]);
+                                if (xVis1 === null || xVis2 === null) continue;
+                                const p1x = state.xToPx(xVis1);
+                                const p1y = state.yToPx(yArr[i - 1]);
+                                const p2x = state.xToPx(xVis2);
+                                const p2y = state.yToPx(yArr[i]);
+                                const hit = segmentIntersect(l1x, l1y, l2x, l2y, p1x, p1y, p2x, p2y);
+                                if (!hit) continue;
+                                const tNorm = lineLen2 > 1e-9
+                                    ? (((hit.x - l1x) * lineDx + (hit.y - l1y) * lineDy) / lineLen2)
+                                    : 0.0;
+                                if (!bestIntersection || tNorm < bestIntersection.tNorm) {
+                                    bestIntersection = { px: hit.x, tNorm };
+                                }
+                            }
+                            if (!bestIntersection) return;
+                            const cutXDisp = state.pxToX(bestIntersection.px);
+
+                            const hOrig = halftimeXOriginal(tr);
+                            const hDisp = (hOrig === null) ? null : transformedXForWell(tr.well, hOrig);
+                            if (!Number.isFinite(hDisp)) return;
+                            const cPrev = normalizeCutState(getCutForWell(tr.well));
+                            const prevShift = cPrev ? (cPrev.shift || 0.0) : 0.0;
+
+                            const cutXOrig = cutXDisp + prevShift;
+                            let nextLeft = cPrev.leftBoundOrig;
+                            let nextRight = cPrev.rightBoundOrig;
+
+                            // Keep side containing halftime:
+                            // cut left of halftime => remove left side => move left bound rightwards
+                            // cut right of halftime => remove right side => move right bound leftwards
+                            if (cutXDisp < hDisp) {
+                                nextLeft = Math.max(nextLeft, cutXOrig);
+                            } else if (cutXDisp > hDisp) {
+                                nextRight = Math.min(nextRight, cutXOrig);
+                            } else {
+                                return;
+                            }
+                            if (nextRight <= nextLeft) return;
+
+                            let nextShift = prevShift;
+                            if (rebaseNewCuts) {
+                                nextShift = nextLeft;
+                            }
+                            cutByWell[tr.well] = {
+                                leftBoundOrig: nextLeft,
+                                rightBoundOrig: nextRight,
+                                shift: nextShift,
+                            };
+                            anyApplied = true;
+                        });
+                        if (!anyApplied && cutHistory.length > 0) {
+                            cutHistory.pop();
+                        } else if (anyApplied && rebaseNewCuts) {
+                            const b = getVisibleXBounds();
+                            viewXMin = b.min;
+                            viewXMax = b.max;
+                            refreshCutStateHidden();
+                        } else if (anyApplied) {
+                            refreshCutStateHidden();
+                        }
+                    } else {
+                        const b = getVisibleXBounds();
+                        viewXMin = Math.max(b.min, Math.min(xA, xB));
+                        viewXMax = Math.min(b.max, Math.max(xA, xB));
+                        viewYMin = Math.max(dataYMin, Math.min(yA, yB));
+                        viewYMax = Math.min(dataYMax, Math.max(yA, yB));
+                        if (viewXMax <= viewXMin) {
+                            viewXMin = b.min;
+                            viewXMax = b.max;
+                        }
+                        if (viewYMax <= viewYMin) {
+                            viewYMin = dataYMin;
+                            viewYMax = dataYMax;
+                        }
+                    }
+                }
+                isZoomDragging = false;
+                zoomDragStart = null;
+                zoomDragCurrent = null;
+                updateCutButtons();
+                draw();
+            });
+
+            canvas.addEventListener("dblclick", function () {
+                resetZoom();
+            });
+            if (zoomResetBtn) {
+                zoomResetBtn.addEventListener("click", function () {
+                    resetZoom();
+                });
+            }
+            if (zoomOutBtn) {
+                zoomOutBtn.addEventListener("click", function () {
+                    zoomOutStep(1.8);
+                });
+            }
+            if (cutModeBtn) {
+                cutModeBtn.addEventListener("click", function () {
+                    cutModeActive = !cutModeActive;
+                    updateCutButtons();
+                });
+            }
+            if (cutSmartBtn) {
+                cutSmartBtn.addEventListener("click", function () {
+                    cutHistory.push(cloneCutState());
+                    let anyApplied = false;
+                    payload.traces.forEach((tr) => {
+                        const bp = baselinePlateauXOriginal(tr);
+                        if (!bp) return;
+                        const cPrev = normalizeCutState(getCutForWell(tr.well));
+                        const nextLeft = Math.max(cPrev.leftBoundOrig, bp.baseline);
+                        const nextRight = Math.min(cPrev.rightBoundOrig, bp.plateau);
+                        if (!(nextRight > nextLeft)) return;
+                        const nextShift = rebaseNewCuts ? nextLeft : 0.0;
+                        cutByWell[tr.well] = {
+                            leftBoundOrig: nextLeft,
+                            rightBoundOrig: nextRight,
+                            shift: nextShift,
+                        };
+                        anyApplied = true;
+                    });
+                    if (!anyApplied && cutHistory.length > 0) {
+                        cutHistory.pop();
+                    } else if (anyApplied && rebaseNewCuts) {
+                        const b = getVisibleXBounds();
+                        viewXMin = b.min;
+                        viewXMax = b.max;
+                        refreshCutStateHidden();
+                    } else if (anyApplied) {
+                        refreshCutStateHidden();
+                    }
+                    updateCutButtons();
+                    draw();
+                });
+            }
+            if (cutUndoBtn) {
+                cutUndoBtn.addEventListener("click", function () {
+                    if (cutHistory.length === 0) return;
+                    const prev = cutHistory.pop() || {};
+                    Object.keys(cutByWell).forEach((k) => delete cutByWell[k]);
+                    Object.keys(prev).forEach((k) => { cutByWell[k] = prev[k]; });
+                    if (rebaseNewCuts) {
+                        const b = getVisibleXBounds();
+                        viewXMin = b.min;
+                        viewXMax = b.max;
+                    }
+                    refreshCutStateHidden();
+                    updateCutButtons();
+                    draw();
+                });
+            }
+            if (cutRebaseBtn) {
+                cutRebaseBtn.addEventListener("click", function () {
+                    rebaseNewCuts = !rebaseNewCuts;
+                    Object.keys(cutByWell).forEach((w) => {
+                        const c = normalizeCutState(cutByWell[w]);
+                        c.shift = rebaseNewCuts ? c.leftBoundOrig : 0.0;
+                        cutByWell[w] = c;
+                    });
+                    if (rebaseNewCuts) {
+                        const b = getVisibleXBounds();
+                        viewXMin = b.min;
+                        viewXMax = b.max;
+                    } else {
+                        viewXMin = xs[0];
+                        viewXMax = xs[xs.length - 1];
+                    }
+                    refreshCutStateHidden();
+                    updateCutButtons();
+                    const globalFitCb = document.getElementById("global-fit-cb");
+                    if (globalFitCb && globalFitCb.checked && aggForm) {
+                        aggForm.submit();
+                        return;
+                    }
+                    draw();
+                });
+            }
+            if (cutLoadBtn) {
+                cutLoadBtn.addEventListener("click", function () {
+                    const saved = (payload.saved_cut_state && typeof payload.saved_cut_state === "object")
+                        ? payload.saved_cut_state
+                        : {};
+                    const savedRebase = !!payload.saved_rebase_new_cuts;
+                    Object.keys(cutByWell).forEach((k) => delete cutByWell[k]);
+                    Object.keys(saved).forEach((k) => {
+                        cutByWell[k] = normalizeCutState(saved[k]);
+                    });
+                    rebaseNewCuts = savedRebase;
+                    if (rebaseNewCuts) {
+                        const b = getVisibleXBounds();
+                        viewXMin = b.min;
+                        viewXMax = b.max;
+                    } else {
+                        viewXMin = xs[0];
+                        viewXMax = xs[xs.length - 1];
+                    }
+                    refreshCutStateHidden();
+                    updateCutButtons();
+                    draw();
+                });
+            }
+            const globalFitCb2 = document.getElementById("global-fit-cb");
+            if (globalFitCb2) {
+                globalFitCb2.addEventListener("change", function () {
+                    updateCutButtons();
+                    if (globalFitCb2.checked) {
+                        const b = getVisibleXBounds();
+                        viewXMin = b.min;
+                        viewXMax = b.max;
+                    }
+                    draw();
+                });
+            }
+            updateCutButtons();
         })();
     </script>
 

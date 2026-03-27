@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>Aggregation Event AI — Overview</title>
+</head>
+<body>
+    <h1>Event AI — Predictions Overview</h1>
+    <p><a href="{{ url_for('event_ai.aggregation_event_ai_view', event_id=event_id, idx=0) }}">&larr; Back to single-well view</a></p>
+
+    {# ── Model switcher ── #}
+    <div style="display:flex; align-items:center; gap:10px; margin:10px 0; flex-wrap:wrap;">
+        <strong style="font-size:0.95rem;">Active model:</strong>
+        {% for key, label in overview_models.items() %}
+        <a href="{{ url_for('event_ai.aggregation_event_ai_overview', event_id=event_id, model=key) }}"
+           style="padding:5px 14px; border-radius:20px; text-decoration:none; font-size:0.88rem; font-weight:600;
+                  {% if key == model_name %}
+                  background:#6d28d9; color:#fff; border:2px solid #6d28d9;
+                  {% else %}
+                  background:#f3f4f6; color:#374151; border:2px solid #d1d5db;
+                  {% endif %}">
+            {{ label }}
+        </a>
+        {% endfor %}
+    </div>
+
+    {# ── Model description ── #}
+    {% if model_name == "model1" %}
+    <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:8px; padding:12px 16px; margin:10px 0; max-width:860px; font-size:0.88rem; color:#14532d;">
+        <strong style="font-size:0.95rem;">Model 1 — Derivative-peak detection</strong>
+        <p style="margin:6px 0 4px;">
+            <strong>Candidate generation:</strong> Scans the signal's first derivative and picks time-points where the rate of change peaks sharply. These derivative peaks indicate rapid transitions — the start of aggregation, a secondary rise, or a sudden drop. A set of broad "trend" windows (baseline, mid-transition, plateau) is also added to catch slow events.
+        </p>
+        <p style="margin:4px 0 4px;">
+            <strong>Scoring:</strong> Each candidate is scored by a <em>RandomForest</em> classifier trained on submitted data (binary: event / no-event). Without enough training data the heuristic fallback weights derivative-peak count (40%), residual from a global sigmoid (30%), local slope (15%) and curvature (15%).
+        </p>
+        <p style="margin:4px 0 4px;">
+            <strong>Event typing:</strong> After a location is confirmed, the box's temporal position in the curve (baseline / transition / plateau) is combined with local signal characteristics to assign a specific type — e.g. a box in the baseline with positive slope → <em>Creeping baseline</em>; a box near the end with the signal still rising → <em>Not finished aggregation</em>.
+        </p>
+        <p style="margin:4px 0 0;">
+            <strong>Strength:</strong> Good at sharp, well-defined events. <strong>Weakness:</strong> May miss slow monotonic drift that has no derivative spike.
+        </p>
+    </div>
+    {% elif model_name == "claude" %}
+    <div style="background:#faf5ff; border:1px solid #c4b5fd; border-radius:8px; padding:12px 16px; margin:10px 0; max-width:860px; font-size:0.88rem; color:#3b0764;">
+        <strong style="font-size:0.95rem;">Claude's Model — Residual & drift detection</strong>
+        <p style="margin:6px 0 4px;">
+            <strong>Candidate generation:</strong> Instead of looking for derivative spikes, this model first fits a smooth 4-parameter logistic (4PL) sigmoid to the whole curve. It then generates dense <em>sliding windows</em> at three time-scales (12 %, 22 %, 35 % of the total duration) across the entire curve, plus extra windows centred on the highest <em>residual</em> peaks (where the real signal deviates most from the ideal sigmoid).
+        </p>
+        <p style="margin:4px 0 4px;">
+            <strong>Features:</strong> Each window is described by residual statistics (mean, std, skew), <em>lag-1 autocorrelation</em> of the residuals (high autocorrelation = persistent drift), multi-scale derivative ratio (fine vs coarse — separates spikes from trends), an irregularity index, and temporal position. None of these features overlap with Model 1.
+        </p>
+        <p style="margin:4px 0 4px;">
+            <strong>Scoring:</strong> A <em>GradientBoosting</em> classifier is trained on submissions that include Claude features (newer submissions). The heuristic fallback weights residual deviation (35%), residual noise (25%), autocorrelation/drift (25%) and irregularity (15%).
+        </p>
+        <p style="margin:4px 0 4px;">
+            <strong>Event typing:</strong> Shared domain-knowledge rules with Model 1 (same <em>classify_box_event_type</em> function). Overlap between adjacent candidates is rejected at a stricter 40 % threshold (vs 50 % in Model 1), so events placed close together are more likely to be kept as distinct.
+        </p>
+        <p style="margin:4px 0 0;">
+            <strong>Strength:</strong> Designed to find slow-drift events (creeping baseline, only drift, laggy plateau) that Model 1 misses. <strong>Weakness:</strong> Dense candidate windows may produce false positives in very noisy curves until enough training data exists.
+        </p>
+    </div>
+    {% endif %}
+
+    {% if not results %}
+    <p style="color:#6b7280;">No predictions found for any well. Try navigating through the wells first to generate predictions.</p>
+    {% else %}
+    <p style="color:#374151;">Showing <strong>{{ results|length }}</strong> well(s) with at least one AI prediction.</p>
+
+    {# ── Legend ── #}
+    <div>
+        <strong style="font-size:0.9rem;">Event type colours:</strong>
+        <div class="legend">
+            {% set seen = namespace(types=[]) %}
+            {% for r in results %}
+                {% for pred in r.predictions %}
+                    {% if pred.event_type and pred.event_type not in seen.types %}
+                        {% set _ = seen.types.append(pred.event_type) %}
+                        <div class="legend-item">
+                            <div class="legend-swatch" style="background:{{ event_type_colors.get(pred.event_type, '#9ca3af') }};"></div>
+                            <span>{{ pred.event_type }}</span>
+                        </div>
+                    {% endif %}
+                {% endfor %}
+            {% endfor %}
+        </div>
+    </div>
+
+    {# ── Grid ── #}
+    <div class="overview-grid">
+        {% for r in results %}
+        <div class="overview-card">
+            <a href="{{ url_for('event_ai.aggregation_event_ai_view', event_id=event_id, idx=loop.index0) }}" title="Open {{ r.well }} in single-well view">
+                <img src="{{ url_for('plots_bp.plot_image', plot_id=r.plot_id) }}" alt="{{ r.well }}">
+            </a>
+            <div style="padding:4px 8px 6px; font-size:0.78rem; color:#374151;">
+                {% for pred in r.predictions %}
+                <span style="display:inline-block; margin:1px 2px; padding:1px 6px; border-radius:10px; font-weight:700;
+                             background:{{ event_type_colors.get(pred.event_type, '#9ca3af') }}22;
+                             color:{{ event_type_colors.get(pred.event_type, '#9ca3af') }};
+                             border:1px solid {{ event_type_colors.get(pred.event_type, '#9ca3af') }};">
+                    {{ pred.event_type or 'Unknown' }}
+                </span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <p style="margin-top:24px;"><a href="/">Back to home</a></p>
+</body>
+</html>

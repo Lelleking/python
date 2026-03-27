@@ -1,0 +1,1 @@
+{"ts": "2026-03-08T08:33:42.552594", "analysis_id": "c29c5cd6744f403ea233ff4bddf52839", "mode": "groups", "curve_ids": ["F06", "F07"], "n_curves": 2, "n_points": 1675, "snr_avg": 22.188238561423788, "br_avg": 0.444218581824514, "drift_avg": 76.40119760479038, "complexity": 3350.0, "r2_avg": -1.0, "restarts": 40, "fit_error": 0.35241795150103405}
