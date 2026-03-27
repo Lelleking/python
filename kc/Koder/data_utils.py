@@ -354,12 +354,25 @@ def merge_data_objects(data_objects):
 
             original_time = data[chrom]["time"]
 
-            # Samma logik som amyloconvert.py:
-            # offset räknas separat per chromatic.
             if merged[chrom]["time"]:
-                time_offset = merged[chrom]["time"][-1]
+                prev_times = merged[chrom]["time"]
+                # Estimate the time step from file1's last interval so file2
+                # starts one step AFTER file1 ends (no duplicate at the seam).
+                if len(prev_times) >= 2:
+                    step = prev_times[-1] - prev_times[-2]
+                else:
+                    step = original_time[1] - original_time[0] if len(original_time) >= 2 else 0
+                time_offset = prev_times[-1] + step
             else:
                 time_offset = 0
+
+            # If file2 starts at 0 (typical sequential export), shift so it
+            # continues after file1.  If it starts at a non-zero value that
+            # would cause overlap, shift to avoid overlap anyway.
+            first_adjusted = (original_time[0] if original_time else 0) + time_offset
+            if merged[chrom]["time"] and first_adjusted <= merged[chrom]["time"][-1]:
+                # Fallback: just place file2 one step after the last point
+                time_offset = merged[chrom]["time"][-1] + step - (original_time[0] if original_time else 0)
 
             adjusted_time = [t + time_offset for t in original_time]
             merged[chrom]["time"].extend(adjusted_time)
