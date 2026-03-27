@@ -1027,7 +1027,7 @@
             Names like <code>file1</code>, <code>file2</code> are only a backup check.
         </p>
         <button type="button" id="add-file-btn" style="background:#475569;">Add file</button>
-        <button type="submit" formaction="/upload/save_only" style="background:#0f766e;">Save</button>
+        <button type="submit" formaction="/upload/save_only" id="save-file-btn" style="background:#0f766e;display:none;">Save</button>
         {% endif %}
 
         <div class="btn-groups-row">
@@ -1329,6 +1329,16 @@
             loadedTemplateGroups: null,
         };
 
+        const saveFileBtn = document.getElementById("save-file-btn");
+        function updateSaveFileBtn() {
+            if (!saveFileBtn || !fileInputs) return;
+            const hasFiles = Array.from(fileInputs.querySelectorAll('input[type="file"]')).some(i => i.files && i.files.length > 0);
+            saveFileBtn.style.display = hasFiles ? "" : "none";
+        }
+        if (fileInputs) {
+            fileInputs.addEventListener("change", updateSaveFileBtn);
+        }
+
         if (addFileBtn && fileInputs) {
             addFileBtn.addEventListener("click", function () {
                 const currentInputs = fileInputs.querySelectorAll('input[type="file"]').length;
@@ -1342,6 +1352,7 @@
                 input.name = "files";
                 input.accept = ".csv,.dat";
                 fileInputs.appendChild(input);
+                input.addEventListener("change", updateSaveFileBtn);
 
                 if (currentInputs + 1 >= maxFiles) {
                     addFileBtn.disabled = true;
