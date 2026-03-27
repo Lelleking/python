@@ -615,8 +615,8 @@
             margin-bottom: 12px;
         }
         .po-cell {
-            width: 80px;
-            height: 58px;
+            /* width is set by table-layout:fixed — no fixed px here */
+            height: 62px;
             border: 1px solid #e2e8f0;
             cursor: pointer;
             position: relative;
@@ -655,9 +655,10 @@
         /* Activated by settings toggles */
         .po-show-labels  .po-cell-label  { display: block; }
         .po-show-halftime .po-cell-thalf { display: block; }
-        .po-header-cell { text-align:center; font-size:0.68rem; font-weight:700; color:#64748b; padding:2px 4px; min-width:80px; }
-        .po-row-label { font-size:0.68rem; font-weight:700; color:#64748b; padding:2px 6px 2px 2px; vertical-align:middle; text-align:center; }
-        .po-grid-table { border-collapse:collapse; }
+        .po-header-cell { text-align:center; font-size:0.62rem; font-weight:700; color:#64748b; padding:1px 0; }
+        .po-row-label { font-size:0.65rem; font-weight:700; color:#64748b; padding:0 3px; vertical-align:middle; text-align:right; width:16px; white-space:nowrap; }
+        /* table fills container, fixed layout lets cells auto-split remaining width */
+        .po-grid-table { border-collapse:collapse; table-layout:fixed; width:100%; }
         .po-grid-wrap { overflow-x:auto; }
         .po-settings-bar { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:8px; padding:6px 10px; background:#f1f5f9; border-radius:7px; font-size:0.82rem; }
         .po-group-legend { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; min-height:20px; }
@@ -3034,7 +3035,9 @@
                 </div>
                 <div class="po-grid-wrap">
                 <table class="po-grid-table" id="po-grid-table">
-                    <thead><tr><th></th>`;
+                    <colgroup><col style="width:16px">`;
+            for (let c = 0; c < COLS; c++) html += `<col>`;
+            html += `</colgroup><thead><tr><th></th>`;
             for (let c = 0; c < COLS; c++) {
                 html += `<th class="po-header-cell">${String(c+1).padStart(2,"0")}</th>`;
             }
@@ -3414,7 +3417,9 @@
                 Object.keys((data.chromatics[cid] || {}).wells || {}).forEach(w => allWells.add(w));
             });
 
-            html += `<div class="po-grid-wrap"><table class="po-grid-table"><thead><tr><th></th>`;
+            html += `<div class="po-grid-wrap"><table class="po-grid-table"><colgroup><col style="width:16px">`;
+            for (let c = 0; c < COLS; c++) html += `<col>`;
+            html += `</colgroup><thead><tr><th></th>`;
             for (let c = 0; c < COLS; c++) {
                 html += `<th class="po-header-cell">${String(c+1).padStart(2,"0")}</th>`;
             }
@@ -3425,7 +3430,7 @@
                     const well = ROWS[r] + String(c+1).padStart(2,"0");
                     const hasAny = allWells.has(well);
                     // data-chrom-well used to find the td for SVG injection
-                    html += `<td class="po-cell${hasAny ? "" : " po-no-data"}" data-chrom-well="${well}" style="width:80px;height:62px;padding:0;position:relative;overflow:hidden;"></td>`;
+                    html += `<td class="po-cell${hasAny ? "" : " po-no-data"}" data-chrom-well="${well}"></td>`;
                 }
                 html += `</tr>`;
             }
@@ -3453,7 +3458,7 @@
                 });
             });
 
-            // Highlight selected chromatic on radio change
+            // All chromatics stay visible; selected one gets full opacity, others slightly dimmed
             function updateChromHighlight() {
                 const picked = document.querySelector('input[name="chrom-pick"]:checked');
                 if (!picked) return;
@@ -3462,7 +3467,7 @@
                     available.forEach(cid => {
                         const svgDiv = chromContent.querySelector(`td[data-chrom-well="${well}"] [data-chrom-svg="${cid}"]`);
                         if (svgDiv) {
-                            svgDiv.style.opacity = (cid === pickedId) ? "1" : "0.2";
+                            svgDiv.style.opacity = (cid === pickedId) ? "1" : "0.6";
                         }
                     });
                 });
