@@ -4010,13 +4010,21 @@
                     if (!data.all_wells.includes(well)) return;
                     if (poDrawMode) {
                         poDragging = true;
-                        if (poSelection.has(well)) {
+                        const assignedGroup = poGetGroupForWell(well);
+                        if (assignedGroup !== null) {
+                            // Remove from its group
+                            poGroups[assignedGroup] = poGroups[assignedGroup].filter(w => w !== well);
+                            if (!poGroups[assignedGroup].length) delete poGroups[assignedGroup];
+                            poSelection.delete(well);
+                            poUpdateCellVisual(cell, well, normalizedCb, showHalfCb, globalYRange);
+                            updateGroupLabels();
+                        } else if (poSelection.has(well)) {
                             poSelection.delete(well);
                             poUpdateCellVisual(cell, well, normalizedCb, showHalfCb, globalYRange);
                         } else {
                             poSelection.add(well);
                             poUpdateCellVisual(cell, well, normalizedCb, showHalfCb, globalYRange);
-                            if (poGetGroupForWell(well) === null) cell.style.background = poGetPendingGroupColor();
+                            cell.style.background = poGetPendingGroupColor();
                         }
                         evt.preventDefault();
                     }
