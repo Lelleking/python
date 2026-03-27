@@ -3361,13 +3361,13 @@
             const COLS = 12;
 
             let html = `
-                <div class="po-feature-bar">
+                <!-- Const values bar — hidden until toggled -->
+                <div class="po-feature-bar" id="po-feature-bar" style="display:none;">
                     <span class="po-feature-label">Const values:</span>
                     <div class="po-feature-tabs" id="po-feature-tabs"></div>
                     <button type="button" id="po-add-feature-btn">+ Add const value</button>
                     <div class="po-add-feature-inline" id="po-add-feature-form" style="display:none;">
                         <select id="po-new-feature-select" style="font-size:0.8rem;padding:3px 7px;border:1px solid #cbd5e1;border-radius:6px;">
-                            <option value="group">group</option>
                             <option value="m0">m0</option>
                             <option value="seed concentration">seed concentration</option>
                             <option value="__custom__">Custom…</option>
@@ -3380,28 +3380,29 @@
                 <div class="plate-ov-group-controls">
                     <button type="button" id="po-draw-mode-btn" style="background:#475569;">Grouping mode: OFF</button>
                     <span id="po-group-color-swatch" style="display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid #cbd5e1;vertical-align:middle;margin-left:2px;"></span>
-                    <input type="text" id="po-group-name-input" placeholder="value" style="max-width:160px;">
+                    <!-- Regular group name (shown on "group" tab) -->
+                    <input type="text" id="po-group-name-input" placeholder="group name" style="max-width:160px;">
+                    <!-- Const value input (shown on non-group tabs) -->
+                    <span id="po-const-value-wrap" style="display:none;align-items:center;gap:4px;">
+                        <input type="number" id="po-const-number-input" placeholder="value" step="any" style="max-width:90px;font-size:0.82rem;padding:4px 7px;border:1px solid #cbd5e1;border-radius:6px;">
+                        <label style="font-size:0.78rem;display:flex;align-items:center;gap:3px;cursor:pointer;">
+                            <input type="radio" name="po-unit-type" value="M" checked> M
+                        </label>
+                        <select id="po-m-prefix" style="font-size:0.78rem;padding:2px 5px;border:1px solid #cbd5e1;border-radius:5px;">
+                            <option value="µ">µ (micro)</option>
+                            <option value="m">m (milli)</option>
+                            <option value="">(none)</option>
+                            <option value="k">k (kilo)</option>
+                        </select>
+                        <label style="font-size:0.78rem;display:flex;align-items:center;gap:3px;cursor:pointer;">
+                            <input type="radio" name="po-unit-type" value="%"> %
+                        </label>
+                    </span>
                     <button type="button" id="po-assign-btn" style="background:#1d4ed8;">Assign</button>
                     <button type="button" id="po-select-all-btn" style="background:#334155;">Select all</button>
                     <button type="button" id="po-clear-sel-btn" style="background:#475569;">Clear selection</button>
                     <button type="button" id="po-clear-groups-btn" style="background:#b91c1c;">Clear groups</button>
-                </div>
-                <div class="po-settings-bar">
-                    <strong style="font-size:0.75rem;color:#334155;">Group template:</strong>
-                    <button type="button" id="po-template-tools-toggle" style="margin-left:auto; background:#334155;">Template options</button>
-                    <span id="po-template-status" style="font-size:0.8rem;color:#64748b;"></span>
-                </div>
-                <div id="po-template-tools-wrap" class="po-settings-bar" style="display:none;">
-                    <input type="text" id="po-template-name" placeholder="template name" style="max-width:170px;">
-                    <button type="button" id="po-template-save" style="background:#0f766e;">Save current groups</button>
-                    <select id="po-template-select" style="min-width:180px;"></select>
-                    <button type="button" id="po-template-preview" style="background:#334155;">Preview</button>
-                    <button type="button" id="po-template-apply" style="background:#1d4ed8;">Apply</button>
-                    <button type="button" id="po-template-stop-preview" style="background:#64748b; display:none;">Stop preview</button>
-                </div>
-                <div id="po-template-preview-wrap" style="display:none; margin:4px 0 8px; border:1px solid #dbe2ea; border-radius:8px; background:#f8fafc; padding:8px;">
-                    <div style="font-size:0.78rem; color:#475569; margin-bottom:6px;">Template preview on plate (not applied)</div>
-                    <div id="po-template-preview-plate"></div>
+                    <button type="button" id="po-toggle-const-btn" style="background:#64748b;margin-left:auto;font-size:0.78rem;">Const values ▾</button>
                 </div>
                 <div class="po-settings-bar">
                     <strong style="font-size:0.75rem;color:#334155;">Settings:</strong>
@@ -3471,16 +3472,41 @@
                 });
             }
 
+            function updateConstValueUI() {
+                const isConst = poActiveFeature !== "";
+                const nameInput    = document.getElementById("po-group-name-input");
+                const constWrap    = document.getElementById("po-const-value-wrap");
+                if (nameInput)  nameInput.style.display  = isConst ? "none" : "";
+                if (constWrap)  constWrap.style.display  = isConst ? "flex" : "none";
+                // Update mPrefix visibility based on unit radio
+                updateMPrefixVisibility();
+            }
+
+            function updateMPrefixVisibility() {
+                const mRadio = document.querySelector('input[name="po-unit-type"][value="M"]');
+                const mPrefix = document.getElementById("po-m-prefix");
+                if (mPrefix) mPrefix.style.display = (mRadio && mRadio.checked) ? "" : "none";
+            }
+
+            function getConstValueLabel() {
+                const numInput = document.getElementById("po-const-number-input");
+                const val = (numInput?.value || "").trim();
+                if (!val) return "";
+                const pctRadio = document.querySelector('input[name="po-unit-type"][value="%"]');
+                if (pctRadio && pctRadio.checked) return `${val}%`;
+                const prefix = document.getElementById("po-m-prefix")?.value || "";
+                return `${val} ${prefix}M`;
+            }
+
             function switchToFeature(fname) {
                 // Save current groups to previous feature
                 if (poActiveFeature === "") {
-                    // store back to default (poGroups is already the live obj)
+                    poFeatures["__default__"] = JSON.parse(JSON.stringify(poGroups));
                 } else {
                     poFeatures[poActiveFeature] = JSON.parse(JSON.stringify(poGroups));
                 }
                 // Load new feature's groups
                 if (fname === "") {
-                    // Restore the original poGroups (or a blank one)
                     const saved = poFeatures["__default__"] || {};
                     Object.keys(poGroups).forEach(k => delete poGroups[k]);
                     Object.assign(poGroups, saved);
@@ -3495,6 +3521,7 @@
                 reRenderAllCells();
                 poRenderGroupLegend(); updateGroupLabels(); updateGroupColorSwatch();
                 renderFeatureTabs();
+                updateConstValueUI();
             }
 
             // Save default groups into poFeatures["__default__"] so they survive feature switches
@@ -3578,6 +3605,27 @@
             }
 
             renderFeatureTabs();
+            updateConstValueUI();
+
+            // Toggle const values bar
+            const toggleConstBtn  = document.getElementById("po-toggle-const-btn");
+            const featureBarEl    = document.getElementById("po-feature-bar");
+            if (toggleConstBtn && featureBarEl) {
+                toggleConstBtn.addEventListener("click", function() {
+                    const showing = featureBarEl.style.display !== "none";
+                    featureBarEl.style.display = showing ? "none" : "";
+                    toggleConstBtn.textContent = showing ? "Const values ▾" : "Const values ▴";
+                    if (showing && poActiveFeature !== "") {
+                        // Switch back to default groups when hiding
+                        switchToFeature("");
+                    }
+                });
+            }
+
+            // Unit radio toggle (show/hide M prefix select)
+            document.querySelectorAll('input[name="po-unit-type"]').forEach(r => {
+                r.addEventListener("change", updateMPrefixVisibility);
+            });
             // ── End feature system ─────────────────────────────────────────
 
             const normalizedCb   = document.getElementById("po-normalized-cb");
@@ -4012,10 +4060,15 @@
 
             // Assign button
             const assignBtn = document.getElementById("po-assign-btn");
-            if (assignBtn && groupNameInput) {
+            if (assignBtn) {
                 assignBtn.addEventListener("click", function() {
-                    const gname = (groupNameInput.value || "").trim();
-                    if (!gname) { window.alert("Enter a group name."); return; }
+                    const gname = poActiveFeature !== ""
+                        ? getConstValueLabel()
+                        : (groupNameInput?.value || "").trim();
+                    if (!gname) {
+                        window.alert(poActiveFeature !== "" ? "Enter a value." : "Enter a group name.");
+                        return;
+                    }
                     if (!poSelection.size) { window.alert("Select wells first."); return; }
                     if (!poGroups[gname]) poGroups[gname] = [];
                     poSelection.forEach(w => {
