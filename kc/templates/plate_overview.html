@@ -131,6 +131,41 @@
             gap: 8px;
             margin-bottom: 14px;
         }
+        .popup-wrap {
+            position: relative;
+            display: inline-block;
+        }
+        .popup-menu {
+            display: none;
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            width: 220px;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+            z-index: 100;
+            padding: 6px 0;
+            flex-direction: column;
+        }
+        .popup-menu.open {
+            display: flex;
+        }
+        .popup-menu button {
+            width: 100%;
+            text-align: left;
+            border-radius: 0;
+            padding: 8px 14px;
+            font-size: 0.85rem;
+            background: none;
+            color: #1e293b;
+            border: none;
+            cursor: pointer;
+        }
+        .popup-menu button:hover {
+            background: #f1f5f9;
+        }
         .info-bar {
             font-size: 0.85rem;
             color: #4b5563;
@@ -159,9 +194,14 @@
 
     <!-- Action buttons -->
     <div class="action-bar">
-        <button type="button" id="btn-plot-agg" style="background:#0891b2;">Plot aggregation curves</button>
-        <button type="button" id="btn-thalf-log" style="background:#2563eb;">Plot t½ vs log(conc)</button>
-        <button type="button" id="btn-thalf-linear" style="background:#3b82f6;">Plot t½ vs conc</button>
+        <div class="popup-wrap" id="plot-popup-wrap">
+            <button type="button" id="btn-plot-menu" style="background:#0891b2;">Plot ▾</button>
+            <div class="popup-menu" id="plot-popup-menu">
+                <button type="button" id="btn-plot-agg">Plot aggregation curves</button>
+                <button type="button" id="btn-thalf-log">Plot t½ vs log(conc)</button>
+                <button type="button" id="btn-thalf-linear">Plot t½ vs conc</button>
+            </div>
+        </div>
         <button type="button" id="btn-control-halftimes" style="background:#0f766e;">Control halftimes</button>
         <button type="button" id="btn-gvc" style="background:#7c3aed;">Plot groups vs control</button>
     </div>
@@ -407,6 +447,13 @@
             return [...allWells].sort();
         }
 
+        // Close popup on item click
+        ["btn-plot-agg","btn-thalf-log","btn-thalf-linear"].forEach(id => {
+            document.getElementById(id).addEventListener("click", () => {
+                plotPopupMenu.classList.remove("open");
+            }, true);
+        });
+
         // Plot aggregation curves
         document.getElementById("btn-plot-agg").addEventListener("click", () => {
             const wells = wellsForPlot();
@@ -471,6 +518,19 @@
                 form.submit();
                 document.body.removeChild(form);
             });
+        });
+
+        // ── Plot popup toggle ─────────────────────────────────────────────────
+        const plotPopupWrap = document.getElementById("plot-popup-wrap");
+        const plotPopupMenu = document.getElementById("plot-popup-menu");
+        document.getElementById("btn-plot-menu").addEventListener("click", (e) => {
+            e.stopPropagation();
+            plotPopupMenu.classList.toggle("open");
+        });
+        document.addEventListener("click", (e) => {
+            if (!plotPopupWrap.contains(e.target)) {
+                plotPopupMenu.classList.remove("open");
+            }
         });
 
         // ── Init ─────────────────────────────────────────────────────────────
