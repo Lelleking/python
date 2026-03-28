@@ -322,6 +322,7 @@
                     const g = btn.dataset.group;
                     delete groups[g];
                     updateAll();
+                    saveGroups();
                 });
             });
         }
@@ -329,6 +330,14 @@
         function updateAll() {
             updateCells();
             renderLegend();
+        }
+
+        function saveGroups() {
+            fetch("/plate_overview/update_groups", {
+                method: "POST",
+                headers: {"Content-Type": "application/x-www-form-urlencoded"},
+                body: `plate_session_id=${encodeURIComponent(plateSessionId)}&groups_json=${encodeURIComponent(JSON.stringify(groups))}`,
+            }).catch(() => {});
         }
 
         // ── Cell click: toggle selection ─────────────────────────────────────
@@ -362,6 +371,7 @@
             groups[name] = [...new Set([...groups[name], ...selectedWells])].sort();
             selectedWells.clear();
             updateAll();
+            saveGroups();
         });
 
         document.getElementById("clear-selection-btn").addEventListener("click", () => {
@@ -372,6 +382,7 @@
         document.getElementById("clear-groups-btn").addEventListener("click", () => {
             groups = {};
             updateAll();
+            saveGroups();
         });
 
         // ── Form submission helpers ───────────────────────────────────────────
@@ -405,14 +416,7 @@
             wells.forEach(w => addHidden(form, "wells", w));
             addHidden(form, "groups_json", JSON.stringify(groups));
             document.body.appendChild(form);
-            // Sync groups to dataset before submitting
-            fetch("/groups/save_from_index", {
-                method: "POST",
-                headers: {"Content-Type": "application/x-www-form-urlencoded"},
-                body: `upload_set_id=&groups_json=${encodeURIComponent(JSON.stringify(groups))}`,
-            }).catch(() => {}).finally(() => {
-                form.submit();
-            });
+            form.submit();
         });
 
         // t½ actions (share same logic, only scale differs)
