@@ -863,6 +863,116 @@
         .po-action-armed {
             box-shadow: inset 0 0 0 2px #0f172a;
         }
+        /* ── Plate overview file tabs ──────────────────────────────── */
+        #po-tab-bar {
+            display: none;
+            align-items: flex-end;
+            gap: 0;
+            border-bottom: 2px solid #e2e8f0;
+            margin-bottom: 12px;
+            overflow-x: auto;
+            flex-wrap: nowrap;
+        }
+        #po-tab-bar.visible { display: flex; }
+        .po-file-tab {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 6px 14px 6px 12px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #64748b;
+            background: #f1f5f9;
+            border: 2px solid #e2e8f0;
+            border-bottom: none;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            white-space: nowrap;
+            max-width: 180px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-right: 2px;
+            user-select: none;
+            flex-shrink: 0;
+            transition: background 0.1s, color 0.1s;
+        }
+        .po-file-tab:hover { background: #e2e8f0; color: #334155; }
+        .po-file-tab.po-tab-active {
+            background: #fff;
+            color: #0f172a;
+            border-color: #cbd5e1;
+            border-bottom: 2px solid #fff;
+            margin-bottom: -2px;
+            z-index: 1;
+        }
+        .po-tab-close {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            font-size: 0.7rem;
+            line-height: 1;
+            color: #94a3b8;
+            background: transparent;
+            padding: 0;
+            flex-shrink: 0;
+            transition: background 0.1s, color 0.1s;
+        }
+        .po-tab-close:hover { background: #fecaca; color: #b91c1c; }
+        #po-add-tab-btn {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 5px 12px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #475569;
+            background: transparent;
+            border: 2px dashed #cbd5e1;
+            border-bottom: none;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            white-space: nowrap;
+            flex-shrink: 0;
+            transition: background 0.1s;
+        }
+        #po-add-tab-btn:hover { background: #f1f5f9; }
+        /* Run picker popover */
+        #po-run-picker {
+            display: none;
+            position: absolute;
+            top: calc(100% + 4px);
+            left: 0;
+            background: #fff;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            box-shadow: 0 6px 24px rgba(0,0,0,0.14);
+            z-index: 3100;
+            min-width: 260px;
+            max-width: 360px;
+            max-height: 320px;
+            overflow-y: auto;
+            padding: 6px 0;
+        }
+        #po-run-picker.visible { display: block; }
+        .po-run-picker-item {
+            padding: 8px 14px;
+            font-size: 0.82rem;
+            color: #1e293b;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+        .po-run-picker-item:hover { background: #f1f5f9; }
+        .po-run-picker-item-name { font-weight: 600; }
+        .po-run-picker-item-meta { font-size: 0.72rem; color: #64748b; }
+        .po-run-picker-empty { padding: 10px 14px; font-size: 0.82rem; color: #94a3b8; }
+        #po-tab-bar-wrap {
+            position: relative;
+        }
         .po-template-preview-shell {
             overflow-x: auto;
             border: 1px solid #dbe2ea;
@@ -1530,6 +1640,10 @@
             <span id="po-info-bar" style="font-size:0.82rem;color:#64748b;"></span>
             <button type="button" id="close-plate-ov-btn" style="background:#475569;">Close</button>
           </div>
+        </div>
+        <div id="po-tab-bar-wrap">
+          <div id="po-tab-bar"></div>
+          <div id="po-run-picker"></div>
         </div>
         <div id="po-content">
           <div class="po-loading">Loading plate data…</div>
@@ -3223,6 +3337,11 @@
         const poInfoBar = document.getElementById("po-info-bar");
         const closePoBtn = document.getElementById("close-plate-ov-btn");
         const openPoBtn = document.getElementById("open-plate-overview-btn");
+        const poTabBar = document.getElementById("po-tab-bar");
+        const poRunPicker = document.getElementById("po-run-picker");
+
+        // Saved runs for the "add file" picker (injected from Jinja2)
+        const PO_SAVED_RUNS = {{ saved_runs | tojson }};
 
         // Module-scoped state
         let poData = null;
@@ -3232,6 +3351,10 @@
         let poDragging = false;
         let poFeatures = {};        // {featureName: {groupName: [wells]}}
         let poActiveFeature = "";   // "" = default unlabelled groups
+
+        // ── Multi-tab state ──────────────────────────────────────────────────
+        let poTabs = [];       // [{label, data, groups, features, activeFeature}]
+        let poActiveTabIdx = -1;
 
         const PO_PALETTE = [
             "#93c5fd","#f9a8d4","#86efac","#fcd34d","#a5b4fc",
@@ -3348,6 +3471,203 @@
                 cell.classList.remove("po-selected");
             }
         }
+
+        // ── Tab management ───────────────────────────────────────────────────
+
+        function saveCurrentTabState() {
+            if (poActiveTabIdx < 0 || poActiveTabIdx >= poTabs.length) return;
+            const t = poTabs[poActiveTabIdx];
+            t.groups = JSON.parse(JSON.stringify(poGroups));
+            t.features = JSON.parse(JSON.stringify(poFeatures));
+            t.activeFeature = poActiveFeature;
+        }
+
+        function loadTabState(idx) {
+            if (idx < 0 || idx >= poTabs.length) return;
+            const t = poTabs[idx];
+            poData = t.data;
+            Object.keys(poGroups).forEach(k => delete poGroups[k]);
+            Object.assign(poGroups, JSON.parse(JSON.stringify(t.groups)));
+            poFeatures = JSON.parse(JSON.stringify(t.features));
+            poActiveFeature = t.activeFeature;
+            poSelection = new Set();
+            poDrawMode = false;
+        }
+
+        function renderTabBar() {
+            if (!poTabBar) return;
+            if (poTabs.length <= 1) {
+                poTabBar.classList.remove("visible");
+                return;
+            }
+            poTabBar.classList.add("visible");
+            poTabBar.innerHTML = "";
+            poTabs.forEach((tab, idx) => {
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.className = "po-file-tab" + (idx === poActiveTabIdx ? " po-tab-active" : "");
+                btn.title = tab.label;
+                const nameSpan = document.createElement("span");
+                nameSpan.textContent = tab.label;
+                nameSpan.style.cssText = "overflow:hidden;text-overflow:ellipsis;max-width:130px;";
+                btn.appendChild(nameSpan);
+                // Close button (always shown; last remaining tab handled gracefully)
+                const closeBtn = document.createElement("button");
+                closeBtn.type = "button";
+                closeBtn.className = "po-tab-close";
+                closeBtn.textContent = "×";
+                closeBtn.title = "Close tab";
+                closeBtn.addEventListener("click", function(e) {
+                    e.stopPropagation();
+                    closeTab(idx);
+                });
+                btn.appendChild(closeBtn);
+                btn.addEventListener("click", function() { switchTab(idx); });
+                poTabBar.appendChild(btn);
+            });
+            // "+ Add file" button
+            const addBtn = document.createElement("button");
+            addBtn.type = "button";
+            addBtn.id = "po-add-tab-btn";
+            addBtn.textContent = "+ Add file";
+            addBtn.addEventListener("click", function(e) {
+                e.stopPropagation();
+                toggleRunPicker(addBtn);
+            });
+            poTabBar.appendChild(addBtn);
+        }
+
+        function switchTab(idx) {
+            if (idx === poActiveTabIdx) return;
+            saveCurrentTabState();
+            poActiveTabIdx = idx;
+            loadTabState(idx);
+            renderTabBar();
+            renderPlateOvContent(poContent, poTabs[idx].data);
+        }
+
+        function closeTab(idx) {
+            if (poTabs.length === 1) {
+                // Last tab: close the whole modal
+                closePoModal();
+                return;
+            }
+            poTabs.splice(idx, 1);
+            let newIdx = poActiveTabIdx;
+            if (newIdx >= poTabs.length) newIdx = poTabs.length - 1;
+            poActiveTabIdx = newIdx;
+            loadTabState(newIdx);
+            renderTabBar();
+            renderPlateOvContent(poContent, poTabs[newIdx].data);
+        }
+
+        function addTab(data, label) {
+            saveCurrentTabState();
+            poTabs.push({
+                label: label,
+                data: data,
+                groups: JSON.parse(JSON.stringify(data.groups || {})),
+                features: { "m0": {}, "seed conc": {} },
+                activeFeature: ""
+            });
+            poActiveTabIdx = poTabs.length - 1;
+            loadTabState(poActiveTabIdx);
+            renderTabBar();
+            renderPlateOvContent(poContent, data);
+        }
+
+        // ── Run picker ───────────────────────────────────────────────────────
+
+        let pickerVisible = false;
+
+        function toggleRunPicker(anchor) {
+            if (!poRunPicker) return;
+            if (pickerVisible) {
+                poRunPicker.classList.remove("visible");
+                pickerVisible = false;
+                return;
+            }
+            buildRunPicker();
+            poRunPicker.classList.add("visible");
+            pickerVisible = true;
+        }
+
+        function buildRunPicker() {
+            if (!poRunPicker) return;
+            poRunPicker.innerHTML = "";
+            const alreadyLoaded = new Set(poTabs.map(t => t.runId).filter(Boolean));
+            const runs = PO_SAVED_RUNS.filter(r => !alreadyLoaded.has(r.id));
+            if (!runs.length) {
+                const empty = document.createElement("div");
+                empty.className = "po-run-picker-empty";
+                empty.textContent = "No other saved runs available.";
+                poRunPicker.appendChild(empty);
+                return;
+            }
+            runs.forEach(run => {
+                const item = document.createElement("div");
+                item.className = "po-run-picker-item";
+                const name = document.createElement("div");
+                name.className = "po-run-picker-item-name";
+                name.textContent = run.run_name || run.id.slice(0, 8);
+                const meta = document.createElement("div");
+                meta.className = "po-run-picker-item-meta";
+                const files = Array.isArray(run.source_files) ? run.source_files.join(", ") : (run.source_files || "");
+                meta.textContent = files ? files.slice(0, 80) : run.created_at || "";
+                item.appendChild(name);
+                if (meta.textContent) item.appendChild(meta);
+                item.addEventListener("click", async function() {
+                    poRunPicker.classList.remove("visible");
+                    pickerVisible = false;
+                    await loadRunAsTab(run);
+                });
+                poRunPicker.appendChild(item);
+            });
+        }
+
+        async function loadRunAsTab(run) {
+            if (poContent) poContent.innerHTML = '<div class="po-loading">Loading…</div>';
+            try {
+                const fd = new FormData();
+                fd.append("upload_set_id", run.id);
+                const resp = await fetch("/plate_overview/data", { method: "POST", body: fd });
+                const data = await resp.json();
+                if (!resp.ok || !data.ok) {
+                    alert("Could not load run: " + (data.error || "unknown error"));
+                    renderPlateOvContent(poContent, poTabs[poActiveTabIdx].data);
+                    return;
+                }
+                const label = (run.run_name || run.id.slice(0, 8)).slice(0, 30);
+                const tab = {
+                    label: label,
+                    runId: run.id,
+                    data: data,
+                    groups: JSON.parse(JSON.stringify(data.groups || {})),
+                    features: { "m0": {}, "seed conc": {} },
+                    activeFeature: ""
+                };
+                saveCurrentTabState();
+                poTabs.push(tab);
+                poActiveTabIdx = poTabs.length - 1;
+                loadTabState(poActiveTabIdx);
+                renderTabBar();
+                renderPlateOvContent(poContent, data);
+            } catch(err) {
+                alert("Network error loading run.");
+                if (poTabs[poActiveTabIdx]) renderPlateOvContent(poContent, poTabs[poActiveTabIdx].data);
+            }
+        }
+
+        // Close picker when clicking outside
+        document.addEventListener("click", function(e) {
+            if (pickerVisible && poRunPicker && !poRunPicker.contains(e.target)) {
+                const addTabBtn = document.getElementById("po-add-tab-btn");
+                if (!addTabBtn || !addTabBtn.contains(e.target)) {
+                    poRunPicker.classList.remove("visible");
+                    pickerVisible = false;
+                }
+            }
+        });
 
         function renderPlateOvContent(container, data) {
             if (!data || !data.ok) {
@@ -4032,6 +4352,7 @@
                     if (poGetGroupForWell(well) === null) cell.style.background = poGetPendingGroupColor();
                 });
                 document.addEventListener("mouseup", function() {
+                    if (poDragging && poDrawMode) poSaveGroups();
                     poDragging = false;
                 });
                 table.addEventListener("click", function(evt) {
@@ -4059,6 +4380,14 @@
             }
 
             // Assign button
+            function poSaveGroups() {
+                fetch("/plate_overview/update_groups", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/x-www-form-urlencoded"},
+                    body: `plate_session_id=${encodeURIComponent(data.plate_session_id)}&groups_json=${encodeURIComponent(JSON.stringify(poGroups))}`,
+                }).catch(() => {});
+            }
+
             const assignBtn = document.getElementById("po-assign-btn");
             if (assignBtn) {
                 assignBtn.addEventListener("click", function() {
@@ -4079,6 +4408,7 @@
                     reRenderAllCells();
                     poRenderGroupLegend(); updateGroupLabels();
                     updateGroupColorSwatch();
+                    poSaveGroups();
                 });
             }
 
@@ -4101,6 +4431,7 @@
                     reRenderAllCells();
                     poRenderGroupLegend(); updateGroupLabels();
                     updateGroupColorSwatch();
+                    poSaveGroups();
                 });
             }
 
@@ -4270,11 +4601,17 @@
         if (openPoBtn) {
             openPoBtn.addEventListener("click", async function() {
                 if (!poModal) return;
+                // Reset all state
                 poGroups = {};
                 poFeatures = { "m0": {}, "seed conc": {} };
                 poActiveFeature = "";
                 poSelection = new Set();
                 poDrawMode = false;
+                poTabs = [];
+                poActiveTabIdx = -1;
+                pickerVisible = false;
+                if (poRunPicker) { poRunPicker.classList.remove("visible"); poRunPicker.innerHTML = ""; }
+                if (poTabBar) { poTabBar.classList.remove("visible"); poTabBar.innerHTML = ""; }
                 // Hide FAB on fresh open
                 const fab = document.getElementById("po-fab-wrap");
                 if (fab) fab.classList.remove("visible");
@@ -4283,7 +4620,7 @@
                 poModal.classList.add("show");
                 poModal.setAttribute("aria-hidden", "false");
 
-                // Gather form data
+                // Gather form data for current upload set
                 const mainForm = openPoBtn.closest("form");
                 const fd = new FormData(mainForm || document.createElement("form"));
                 try {
@@ -4293,6 +4630,23 @@
                         if (poContent) poContent.innerHTML = `<div class="po-loading" style="color:#b91c1c;">Error: ${data.error || "Could not load plate data."}</div>`;
                         return;
                     }
+                    // Figure out the label for the first tab
+                    const currentRunId = fd.get("upload_set_id") || "";
+                    const currentRun = PO_SAVED_RUNS.find(r => r.id === currentRunId);
+                    const firstLabel = currentRun
+                        ? (currentRun.run_name || currentRun.id.slice(0,8)).slice(0,30)
+                        : (data.n_files ? `${data.n_files} file${data.n_files>1?"s":""}` : "Current");
+                    poTabs = [{
+                        label: firstLabel,
+                        runId: currentRunId,
+                        data: data,
+                        groups: JSON.parse(JSON.stringify(data.groups || {})),
+                        features: { "m0": {}, "seed conc": {} },
+                        activeFeature: ""
+                    }];
+                    poActiveTabIdx = 0;
+                    loadTabState(0);
+                    renderTabBar();
                     renderPlateOvContent(poContent, data);
                 } catch(err) {
                     if (poContent) poContent.innerHTML = `<div class="po-loading" style="color:#b91c1c;">Network error.</div>`;
